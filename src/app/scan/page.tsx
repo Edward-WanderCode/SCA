@@ -12,8 +12,10 @@ import {
     CheckCircle2,
     AlertCircle,
     FolderOpen,
-
-    Code2
+    Code2,
+    Monitor,
+    Laptop,
+    FileUp
 } from "lucide-react"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
@@ -51,6 +53,8 @@ function ScanPageContent() {
     const [activeScans, setActiveScans] = useState<any[]>([])
     const [scanStage, setScanStage] = useState('')
     const [scanDetails, setScanDetails] = useState('')
+    const [folderSource, setFolderSource] = useState<'server' | 'client'>('server')
+    const [clientFiles, setClientFiles] = useState<FileList | null>(null)
     const [analysisData, setAnalysisData] = useState<{
         files: number,
         rules: number,
@@ -148,8 +152,55 @@ function ScanPageContent() {
         }
     }
 
-    const handleStartScan = () => {
-        startScanWithParams(method, repoUrl, folderPath)
+    const handleStartScan = async () => {
+        if (method === 'folder' && folderSource === 'client') {
+            if (!clientFiles || clientFiles.length === 0) {
+                alert('Please select a folder to scan')
+                return
+            }
+
+            setIsScanning(true)
+            setStep('scanning')
+            setScanStage('Uploading files...')
+            setScanDetails('Uploading local files to scanner...')
+            setProgress(0)
+
+            try {
+                const formData = new FormData()
+                // Convert FileList to Array and append
+                Array.from(clientFiles).forEach(file => {
+                    // Use webkitRelativePath if available to preserve structure
+                    const path = file.webkitRelativePath || file.name
+                    formData.append('files', file, path)
+                })
+
+                const res = await fetch('/api/upload', {
+                    method: 'POST',
+                    body: formData
+                })
+
+                if (!res.ok) {
+                    const err = await res.json()
+                    throw new Error(err.error || 'Upload failed')
+                }
+
+                const data = await res.json()
+
+                if (data.success && data.path) {
+                    // Start scan with the temp path on server
+                    startScanWithParams('folder', null, data.path)
+                } else {
+                    throw new Error('Upload succeeded but no path returned')
+                }
+            } catch (error: any) {
+                console.error('Upload Error:', error)
+                alert('Upload failed: ' + error.message)
+                setStep('setup')
+                setIsScanning(false)
+            }
+        } else {
+            startScanWithParams(method, repoUrl, folderPath)
+        }
     }
 
     React.useEffect(() => {
@@ -222,8 +273,8 @@ function ScanPageContent() {
                             >
                                 <FolderOpen className={`w-6 h-6 ${method === 'folder' ? 'text-primary' : 'text-muted-foreground'}`} />
                                 <div>
-                                    <h3 className="font-semibold">Local Folder</h3>
-                                    <p className="text-xs text-muted-foreground mt-1">Scan a local directory.</p>
+                                    <h3 className="font-semibold">Server Directory</h3>
+                                    <p className="text-xs text-muted-foreground mt-1">Scan a folder on the host.</p>
                                 </div>
                             </button>
                             <button
@@ -264,43 +315,90 @@ function ScanPageContent() {
                                                 <FolderOpen className="w-8 h-8 text-primary" />
                                             </div>
                                             <div>
-                                                <h3 className="text-lg font-bold">Select Local Folder</h3>
+                                                <h3 className="text-lg font-bold">Directory Scan</h3>
                                                 <p className="text-sm text-muted-foreground mt-1 max-w-sm">
-                                                    Choose a directory from your system to analyze.
+                                                    Analyze source code from a directory.
                                                 </p>
+
+                                                <div className="flex gap-2 justify-center mt-4 bg-black/20 p-1 rounded-lg">
+                                                    <button
+                                                        onClick={() => setFolderSource('server')}
+                                                        className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm transition-all ${folderSource === 'server' ? 'bg-primary text-primary-foreground shadow' : 'hover:bg-white/5 text-muted-foreground'
+                                                            }`}
+                                                    >
+                                                        <Monitor className="w-4 h-4" />
+                                                        Server Host
+                                                    </button>
+                                                    <button
+                                                        onClick={() => setFolderSource('client')}
+                                                        className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm transition-all ${folderSource === 'client' ? 'bg-primary text-primary-foreground shadow' : 'hover:bg-white/5 text-muted-foreground'
+                                                            }`}
+                                                    >
+                                                        <Laptop className="w-4 h-4" />
+                                                        This Workstation
+                                                    </button>
+                                                </div>
                                             </div>
 
                                             <div className="w-full max-w-lg space-y-3 mt-2">
-                                                <div className="flex items-center gap-2">
-                                                    <input
-                                                        type="text"
-                                                        placeholder="E:\Code\MyProject"
-                                                        value={folderPath}
-                                                        onChange={(e) => setFolderPath(e.target.value)}
-                                                        className="flex-1 bg-black/20 border border-white/10 rounded-lg px-4 py-3 outline-none focus:border-primary transition-colors font-mono text-sm"
-                                                    />
-                                                    <button
-                                                        onClick={async (e) => {
-                                                            e.preventDefault();
-                                                            try {
-                                                                const response = await fetch('/api/utils/select-folder');
-                                                                const data = await response.json();
-                                                                if (data.success && data.path) {
-                                                                    setFolderPath(data.path);
-                                                                }
-                                                            } catch (err) {
-                                                                console.error('Failed to open folder picker:', err);
-                                                            }
-                                                        }}
-                                                        className="px-6 py-3 bg-primary hover:bg-primary/90 text-white font-medium rounded-lg transition-colors flex items-center gap-2 whitespace-nowrap"
-                                                    >
-                                                        <FolderOpen className="w-4 h-4" />
-                                                        Browse System
-                                                    </button>
-                                                </div>
-                                                <p className="text-xs text-muted-foreground text-left pl-1">
-                                                    Tip: You can paste a full absolute path directly.
-                                                </p>
+                                                {folderSource === 'server' ? (
+                                                    <>
+                                                        <div className="flex items-center gap-2">
+                                                            <input
+                                                                type="text"
+                                                                placeholder="e.g. D:\Code\MyProject (Server Path)"
+                                                                value={folderPath}
+                                                                onChange={(e) => setFolderPath(e.target.value)}
+                                                                className="flex-1 bg-black/20 border border-white/10 rounded-lg px-4 py-3 outline-none focus:border-primary transition-colors font-mono text-sm"
+                                                            />
+                                                            <button
+                                                                onClick={async (e) => {
+                                                                    e.preventDefault();
+                                                                    try {
+                                                                        const response = await fetch('/api/utils/select-folder');
+                                                                        const data = await response.json();
+                                                                        if (data.success && data.path) {
+                                                                            setFolderPath(data.path);
+                                                                        }
+                                                                    } catch (err) {
+                                                                        console.error('Failed to open folder picker:', err);
+                                                                    }
+                                                                }}
+                                                                className="px-6 py-3 bg-secondary hover:bg-secondary/90 text-white font-medium rounded-lg transition-colors flex items-center gap-2 whitespace-nowrap"
+                                                                title="Opens a file dialog on the SERVER's monitor (Best for Localhost usage)"
+                                                            >
+                                                                <FolderOpen className="w-4 h-4" />
+                                                                Server Dialog
+                                                            </button>
+                                                        </div>
+                                                        <p className="text-xs text-muted-foreground text-left pl-1">
+                                                            <strong>Note:</strong> "Server Host" scans a folder already existing on the server.
+                                                        </p>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <div className="border border-dashed border-white/20 rounded-lg p-6 hover:bg-white/5 transition-colors cursor-pointer relative">
+                                                            <input
+                                                                type="file"
+                                                                // @ts-ignore
+                                                                webkitdirectory=""
+                                                                directory=""
+                                                                multiple
+                                                                className="absolute inset-0 opacity-0 cursor-pointer"
+                                                                onChange={(e) => setClientFiles(e.target.files)}
+                                                            />
+                                                            <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                                                                <FileUp className={`w-8 h-8 ${clientFiles ? 'text-primary' : ''}`} />
+                                                                <span className="text-sm font-medium">
+                                                                    {clientFiles ? `${clientFiles.length} files selected` : 'Choose folder to upload...'}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                        <p className="text-xs text-muted-foreground text-left pl-1">
+                                                            <strong>Note:</strong> Files will be uploaded to a temporary secure location for scanning.
+                                                        </p>
+                                                    </>
+                                                )}
                                             </div>
                                         </div>
                                     </div>
@@ -320,7 +418,6 @@ function ScanPageContent() {
                                         </div>
                                     </div>
                                 </div>
-
                             ) : (
                                 <div className="border-2 border-dashed border-white/10 rounded-xl p-12 flex flex-col items-center justify-center gap-4 hover:border-primary/50 transition-colors cursor-pointer">
                                     <Upload className="w-12 h-12 text-muted-foreground" />

@@ -27,13 +27,15 @@ export interface OpenGrepFinding {
 export interface ScanResult {
     id: string;
     timestamp: string;
-    findings: OpenGrepFinding[];
+    findings: OpenGrepFinding[] | any[];
     stats: {
-        totalFiles: number;
-        totalFindings: number;
+        totalFiles?: number;
+        totalFindings?: number;
+        [key: string]: any;
     };
     languages: string[];
     missingPacks: string[];
+    fileTree?: FileNode[];
 }
 
 export interface ScanAnalysis {
@@ -41,6 +43,14 @@ export interface ScanAnalysis {
     rules: number;
     languages: { name: string; rules: number; files: number }[];
     origins: { name: string; rules: number }[];
+}
+
+export interface FileNode {
+    name: string;
+    path: string;
+    type: 'file' | 'directory';
+    children?: FileNode[];
+    size?: number;
 }
 
 export const LANGUAGE_MAP: Record<string, { extensions: string[] }> = {
@@ -136,6 +146,58 @@ async function detectLanguages(targetPath: string): Promise<{ languages: string[
     console.log(`[Scanner] Total scanned lines: ${scannedLines}`);
 
     return { languages: result, scannedLines, scannedFiles, languageCounts };
+}
+
+async function generateFileTree(dirPath: string, rootPath: string = dirPath): Promise<FileNode[]> {
+    const nodes: FileNode[] = [];
+    try {
+        const entries = await fs.readdir(dirPath, { withFileTypes: true });
+
+        for (const entry of entries) {
+            const fullPath = path.join(dirPath, entry.name);
+            const relativePath = path.relative(rootPath, fullPath).replace(/\\/g, '/');
+
+            // Skip common ignore directories
+            if (entry.name === 'node_modules' ||
+                entry.name === '.git' ||
+                entry.name === '.next' ||
+                entry.name === '.sca-data') {
+                continue;
+            }
+
+            if (entry.isDirectory()) {
+                nodes.push({
+                    name: entry.name,
+                    path: relativePath,
+                    type: 'directory',
+                    children: await generateFileTree(fullPath, rootPath)
+                });
+            } else {
+                let size = 0;
+                try {
+                    const stats = await fs.stat(fullPath);
+                    size = stats.size;
+                } catch { }
+
+                nodes.push({
+                    name: entry.name,
+                    path: relativePath,
+                    type: 'file',
+                    size
+                });
+            }
+        }
+
+        // Sort: directories first, then files
+        nodes.sort((a, b) => {
+            if (a.type === b.type) return a.name.localeCompare(b.name);
+            return a.type === 'directory' ? -1 : 1;
+        });
+
+    } catch (error) {
+        console.error('Error generating file tree:', error);
+    }
+    return nodes;
 }
 
 
@@ -238,7 +300,8 @@ export async function runScan(
     warnings: string[],
     scannedLines: number,
     scannedFiles: number,
-    logs: string
+    logs: string,
+    fileTree: FileNode[]
 }> {
     let logs = `[${new Date().toISOString()}] Starting scan on ${targetPath}\n`;
     logger.addLog('SCAN', `Starting scan on: ${targetPath}`);
@@ -419,7 +482,7 @@ export async function runScan(
         }
 
         // Build the command
-        const sastCommand = `${opengrepBin} scan --config=${configArg} --exclude .next --exclude node_modules --json --max-target-bytes=${maxTargetBytes} --timeout=${timeout} "${sanitizedTargetPath}"`;
+        const sastCommand = `${opengrepBin} scan --config=${configArg} --exclude .next --exclude node_modules --no-git-ignore --scan-unknown-extensions --json --max-target-bytes=${maxTargetBytes} --timeout=${timeout} "${sanitizedTargetPath}"`;
 
         try {
             logs += `[Scanner] Running SAST with: ${sastCommand}\n`;
@@ -495,13 +558,17 @@ export async function runScan(
 
         logs += `[Scanner] Completed: ${sastFindings.length} (SAST) + ${trivyFindings.length} (Trivy) findings\n`;
 
+        // Generate file tree
+        const fileTree = await generateFileTree(targetPath);
+
         return {
             findings: allFindings,
             languages: detectedLanguages,
             warnings,
             scannedLines,
             scannedFiles,
-            logs
+            logs,
+            fileTree
         };
     } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
@@ -513,7 +580,8 @@ export async function runScan(
             warnings: [],
             scannedLines: 0,
             scannedFiles: 0,
-            logs
+            logs,
+            fileTree: []
         };
     }
 }

@@ -58,14 +58,16 @@ export async function POST(request: Request) {
                 duration: 0,
                 findings: { critical: 0, high: 0, medium: 0, low: 0, info: 0 }
             },
-            findings: []
+            findings: [],
+            languages: [],
+            missingPacks: []
         };
 
         await saveScanResult(runningScan);
 
         console.log(`Starting Opengrep + Trivy scan on: ${targetPath}`)
         const startTime = Date.now();
-        const { findings, languages, scannedLines, scannedFiles, logs } = await runScan(targetPath, { ruleSet })
+        const { findings, languages, scannedLines, scannedFiles, logs, fileTree } = await runScan(targetPath, { ruleSet })
         const duration = Math.round((Date.now() - startTime) / 1000);
 
         let previousFindings: any[] = []
@@ -151,7 +153,8 @@ export async function POST(request: Request) {
             },
             language: languages.join(', ') || 'Auto-detected',
             findings: currentFindings,
-            logs: logs
+            logs: logs,
+            fileTree: fileTree
         }
 
         await saveScanResult(scanResult)

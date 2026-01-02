@@ -45,6 +45,7 @@ next-env.d.ts
 # tools
 /Trivy
 /OpenGrep
+!OpenGrep/rules/clojure/lang/security/documentbuilderfactory-xxe.clj
 
 # User uploads
 /Remote

@@ -229,7 +229,12 @@ export default function VulnerabilitiesPage() {
                                     <button
                                         onClick={(e) => {
                                             e.stopPropagation()
-                                            navigator.clipboard.writeText(vuln.code)
+                                            if (navigator.clipboard && navigator.clipboard.writeText) {
+                                                navigator.clipboard.writeText(vuln.code)
+                                                    .catch(err => console.error('Failed to copy code:', err));
+                                            } else {
+                                                alert('Clipboard API not available');
+                                            }
                                         }}
                                         className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1"
                                     >
@@ -251,7 +256,12 @@ export default function VulnerabilitiesPage() {
                                         <button
                                             onClick={(e) => {
                                                 e.stopPropagation()
-                                                navigator.clipboard.writeText(vuln.fix!)
+                                                if (navigator.clipboard && navigator.clipboard.writeText) {
+                                                    navigator.clipboard.writeText(vuln.fix!)
+                                                        .catch(err => console.error('Failed to copy fix:', err));
+                                                } else {
+                                                    alert('Clipboard API not available');
+                                                }
                                             }}
                                             className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1"
                                         >

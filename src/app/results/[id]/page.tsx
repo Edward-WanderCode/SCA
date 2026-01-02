@@ -29,6 +29,7 @@ import {
 import Link from "next/link"
 import { cn } from "@/lib/utils"
 import { useParams } from "next/navigation"
+import FileTree from "./FileTree"
 
 interface Finding {
     id: string
@@ -61,11 +62,113 @@ export default function ResultsDetailPage() {
     const [scanStage, setScanStage] = useState('')
     const [scanDetails, setScanDetails] = useState('')
     const [analysisData, setAnalysisData] = useState<any>(null)
+    const [basePath, setBasePath] = useState<string>('')
+
+    // Helper to normalize path separators
+    const normalizePath = (path: string) => path.replace(/\\/g, '/');
+
+    // Helper to remove base path from a file path
+    const removeBasePath = (path: string, base: string) => {
+        const normalized = normalizePath(path);
+        if (base && normalized.startsWith(base + '/')) {
+            return normalized.substring(base.length + 1);
+        }
+        return normalized;
+    };
+
+    // Build file tree from findings if not available
+    const buildFileTreeFromFindings = (findings: any[]) => {
+        if (!findings || findings.length === 0) return [];
+
+        const tree: any = {};
+
+        findings.forEach((finding: any) => {
+            // Normalize path separators to forward slash
+            let normalizedPath = finding.file.replace(/\\/g, '/');
+
+            // Remove base path if it exists (use basePath from state)
+            if (basePath && normalizedPath.startsWith(basePath + '/')) {
+                normalizedPath = normalizedPath.substring(basePath.length + 1);
+            }
+
+            // Skip if path is empty after removing base
+            if (!normalizedPath) return;
+
+            const parts = normalizedPath.split('/');
+            let current = tree;
+
+            parts.forEach((part: string, index: number) => {
+                if (!current[part]) {
+                    current[part] = {
+                        name: part,
+                        path: parts.slice(0, index + 1).join('/'),
+                        type: index === parts.length - 1 ? 'file' : 'directory',
+                        children: {}
+                    };
+                }
+                current = current[part].children;
+            });
+        });
+
+        const convertToArray = (obj: any): any[] => {
+            return Object.values(obj).map((node: any) => ({
+                ...node,
+                children: node.type === 'directory' ? convertToArray(node.children) : undefined
+            })).filter((node: any) => node.type === 'directory' || node.type === 'file');
+        };
+
+        return convertToArray(tree);
+    };
 
     // Reset selected group when grouping changes
     useEffect(() => {
         setSelectedGroupName(null)
     }, [groupBy])
+
+    // Calculate base path when scanData changes
+    useEffect(() => {
+        if (scanData && scanData.findings && scanData.findings.length > 0) {
+            const normalizedPaths = scanData.findings.map((f: any) => f.file.replace(/\\/g, '/'));
+            const absolutePaths = normalizedPaths.filter((p: string) => p.match(/^[A-Za-z]:\//));
+
+            let calculatedBase = '';
+
+            if (absolutePaths.length > 0) {
+                const parts = absolutePaths[0].split('/');
+
+                // Find the longest common prefix among absolute paths
+                for (let i = parts.length - 1; i >= 0; i--) {
+                    const prefix = parts.slice(0, i).join('/');
+                    if (absolutePaths.every((p: string) => p.startsWith(prefix + '/') || p === prefix)) {
+                        calculatedBase = prefix;
+                        break;
+                    }
+                }
+            }
+
+            // After removing base path, check if all remaining paths start with the same folder
+            const pathsAfterBase = normalizedPaths.map((p: string) => {
+                if (calculatedBase && p.startsWith(calculatedBase + '/')) {
+                    return p.substring(calculatedBase.length + 1);
+                }
+                return p;
+            }).filter((p: string) => p.length > 0);
+
+            if (pathsAfterBase.length > 0) {
+                // Get the first folder of each path
+                const firstFolders = pathsAfterBase.map((p: string) => p.split('/')[0]);
+                const uniqueFolders = new Set(firstFolders);
+
+                // If all paths start with the same single folder, include it in base path
+                if (uniqueFolders.size === 1) {
+                    const commonFolder = Array.from(uniqueFolders)[0] as string;
+                    calculatedBase = calculatedBase ? `${calculatedBase}/${commonFolder}` : commonFolder;
+                }
+            }
+
+            setBasePath(calculatedBase);
+        }
+    }, [scanData])
 
     const fetchScanDetail = async () => {
         try {
@@ -270,7 +373,14 @@ export default function ResultsDetailPage() {
                                 <div className="flex items-center justify-between mb-2">
                                     <h4 className="text-sm font-semibold">Vulnerable Code</h4>
                                     <button
-                                        onClick={() => navigator.clipboard.writeText(finding.code)}
+                                        onClick={() => {
+                                            if (navigator.clipboard && navigator.clipboard.writeText) {
+                                                navigator.clipboard.writeText(finding.code)
+                                                    .catch(err => console.error('Failed to copy code:', err));
+                                            } else {
+                                                alert('Clipboard API not available');
+                                            }
+                                        }}
                                         className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1"
                                     >
                                         <Copy className="w-3 h-3" />
@@ -290,7 +400,14 @@ export default function ResultsDetailPage() {
                                     <div className="flex items-center justify-between mb-2">
                                         <h4 className="text-sm font-semibold text-emerald-500">Suggested Fix</h4>
                                         <button
-                                            onClick={() => navigator.clipboard.writeText(finding.fix)}
+                                            onClick={() => {
+                                                if (navigator.clipboard && navigator.clipboard.writeText) {
+                                                    navigator.clipboard.writeText(finding.fix)
+                                                        .catch(err => console.error('Failed to copy fix:', err));
+                                                } else {
+                                                    alert('Clipboard API not available');
+                                                }
+                                            }}
                                             className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1"
                                         >
                                             <Copy className="w-3 h-3" />
@@ -507,7 +624,15 @@ export default function ResultsDetailPage() {
                             </div>
                             <div className="flex items-center gap-2">
                                 <button
-                                    onClick={() => navigator.clipboard.writeText(scanData.logs || 'No logs available')}
+                                    onClick={() => {
+                                        if (navigator.clipboard && navigator.clipboard.writeText) {
+                                            navigator.clipboard.writeText(scanData?.logs || 'No logs available')
+                                                .then(() => console.log('Logs copied to clipboard'))
+                                                .catch(err => console.error('Failed to copy logs:', err));
+                                        } else {
+                                            alert('Clipboard API not available');
+                                        }
+                                    }}
                                     className="px-3 py-1.5 text-xs bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors flex items-center gap-1.5"
                                 >
                                     <Copy className="w-3 h-3" />
@@ -522,7 +647,7 @@ export default function ResultsDetailPage() {
                             </div>
                         </div>
                         <div className="flex-1 overflow-auto p-6 font-mono text-xs bg-[#0a0e1a]">
-                            {scanData.logs ? (
+                            {scanData?.logs ? (
                                 <div className="space-y-1">
                                     {scanData.logs.split('\n').map((line: string, idx: number) => {
                                         let lineClass = "text-slate-300";
@@ -580,207 +705,226 @@ export default function ResultsDetailPage() {
                                 </span>
                             </div>
                             <span className="text-muted-foreground">
-                                {scanData.logs ? scanData.logs.split('\n').length : 0} lines
+                                {scanData?.logs ? scanData.logs.split('\n').length : 0} lines
                             </span>
                         </div>
                     </motion.div>
                 </div>
             )}
 
-            {/* Language and Warnings */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="glass-card p-4 border-l-4 border-l-blue-500">
-                    <h4 className="text-sm font-bold flex items-center gap-2">
-                        <Code2 className="w-4 h-4 text-blue-400" />
-                        Detected Languages
-                    </h4>
-                    <div className="flex flex-wrap gap-2 mt-2">
-                        {scanData.languages && scanData.languages.length > 0 ? scanData.languages.map((lang: string) => (
-                            <span key={lang} className="px-2 py-1 bg-blue-500/10 text-blue-400 text-xs rounded-md border border-blue-500/20">
-                                {lang}
-                            </span>
-                        )) : <span className="text-xs text-muted-foreground">{scanData.language || 'Auto-detected'}</span>}
-                    </div>
-                </div>
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+                <div className="lg:col-span-3 space-y-8">
 
-                {scanData.missingPacks && scanData.missingPacks.length > 0 && (
-                    <div className="glass-card p-4 border-l-4 border-l-amber-500 bg-amber-500/5">
-                        <h4 className="text-sm font-bold flex items-center gap-2 text-amber-500">
-                            <AlertCircle className="w-4 h-4" />
-                            Missing Rulepacks
-                        </h4>
-                        <p className="text-[10px] text-amber-200/70 mt-1">
-                            No comprehensive security rulepacks available for:
-                        </p>
-                        <div className="flex flex-wrap gap-2 mt-2">
-                            {scanData.missingPacks.map((lang: string) => (
-                                <span key={lang} className="px-2 py-1 bg-amber-500/10 text-amber-500 text-xs rounded-md border border-amber-500/20 font-medium">
-                                    {lang} Pack
-                                </span>
-                            ))}
+                    {/* Language and Warnings */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="glass-card p-4 border-l-4 border-l-blue-500">
+                            <h4 className="text-sm font-bold flex items-center gap-2">
+                                <Code2 className="w-4 h-4 text-blue-400" />
+                                Detected Languages
+                            </h4>
+                            <div className="flex flex-wrap gap-2 mt-2">
+                                {scanData.languages && scanData.languages.length > 0 ? scanData.languages.map((lang: string) => (
+                                    <span key={lang} className="px-2 py-1 bg-blue-500/10 text-blue-400 text-xs rounded-md border border-blue-500/20">
+                                        {lang}
+                                    </span>
+                                )) : <span className="text-xs text-muted-foreground">{scanData.language || 'Auto-detected'}</span>}
+                            </div>
                         </div>
-                    </div>
-                )}
-            </div>
 
-            {/* Stats Overview */}
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                {Object.entries(scanData.stats.findings).map(([severity, count], index) => {
-                    const Icon = severityIcons[severity as keyof typeof severityIcons] || Info
-                    const colorClass = severityColors[severity as keyof typeof severityColors] || severityColors.info
-                    return (
-                        <motion.div
-                            key={severity}
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: index * 0.05 }}
-                            className={cn("glass-card p-4 md:p-6", colorClass)}
-                        >
-                            <div className="flex items-center justify-between mb-2">
-                                <Icon className="w-5 h-5" />
-                                <span className="text-2xl md:text-3xl font-bold">{count as number}</span>
+                        {scanData.missingPacks && scanData.missingPacks.length > 0 && (
+                            <div className="glass-card p-4 border-l-4 border-l-amber-500 bg-amber-500/5">
+                                <h4 className="text-sm font-bold flex items-center gap-2 text-amber-500">
+                                    <AlertCircle className="w-4 h-4" />
+                                    Missing Rulepacks
+                                </h4>
+                                <p className="text-[10px] text-amber-200/70 mt-1">
+                                    No comprehensive security rulepacks available for:
+                                </p>
+                                <div className="flex flex-wrap gap-2 mt-2">
+                                    {scanData.missingPacks.map((lang: string) => (
+                                        <span key={lang} className="px-2 py-1 bg-amber-500/10 text-amber-500 text-xs rounded-md border border-amber-500/20 font-medium">
+                                            {lang} Pack
+                                        </span>
+                                    ))}
+                                </div>
                             </div>
-                            <p className="text-sm font-medium capitalize">{severity}</p>
-                        </motion.div>
-                    )
-                })}
-            </div>
-
-            {/* Filters */}
-            <div className="flex flex-col md:flex-row gap-4">
-                <div className="flex gap-2">
-                    <select
-                        value={selectedSeverity}
-                        onChange={(e) => setSelectedSeverity(e.target.value)}
-                        className="px-4 py-2 bg-slate-900 border border-white/10 rounded-lg outline-none focus:border-indigo-500 transition-colors text-sm"
-                    >
-                        <option value="all">All Severities</option>
-                        <option value="critical">Critical</option>
-                        <option value="high">High</option>
-                        <option value="medium">Medium</option>
-                        <option value="low">Low</option>
-                    </select>
-                    <select
-                        value={selectedCategory}
-                        onChange={(e) => setSelectedCategory(e.target.value)}
-                        className="px-4 py-2 bg-slate-900 border border-white/10 rounded-lg outline-none focus:border-indigo-500 transition-colors text-sm"
-                    >
-                        <option value="all">All Categories</option>
-                        {Array.from(new Set(scanData.findings.map((f: any) => f.category))).map((cat: any) => (
-                            <option key={cat} value={cat}>{cat}</option>
-                        ))}
-                    </select>
-                    <select
-                        value={groupBy}
-                        onChange={(e) => {
-                            setGroupBy(e.target.value as 'none' | 'file' | 'rule')
-                        }}
-                        className="px-4 py-2 bg-slate-900 border border-white/10 rounded-lg outline-none focus:border-indigo-500 transition-colors text-sm"
-                    >
-                        <option value="none">Không nhóm</option>
-                        <option value="file">Nhóm theo File</option>
-                        <option value="rule">Nhóm theo Lỗi</option>
-                    </select>
-                </div>
-                <div className="md:ml-auto text-sm text-muted-foreground flex items-center gap-2">
-                    Hiển thị <span className="font-bold text-white">{filteredFindings.length}</span> trên <span className="font-bold text-white">{totalFindingsCount}</span> lỗi phát hiện
-                </div>
-            </div>
-
-            {/* Findings List */}
-            <div className="space-y-6">
-                {groupBy === 'none' ? (
-                    <div className="space-y-4">
-                        {filteredFindings.map((finding: any, index: number) => renderFinding(finding, index))}
-                        {filteredFindings.length === 0 && renderNoFindings()}
+                        )}
                     </div>
-                ) : (
-                    <div className="flex flex-col md:flex-row gap-6 min-h-[600px]">
-                        {/* Sidebar */}
-                        <div className="w-full md:w-80 flex-shrink-0 space-y-2">
-                            <div className="text-xs font-bold text-slate-500 uppercase tracking-widest px-2 mb-4">
-                                {groupBy === 'file' ? 'Danh sách File' : 'Danh sách Lỗi'}
-                            </div>
-                            <div className="glass-card p-2 max-h-[70vh] overflow-y-auto custom-scrollbar">
-                                {Object.entries(
-                                    filteredFindings.reduce((acc: any, finding: any) => {
-                                        const key = groupBy === 'file' ? finding.file : finding.title;
-                                        if (!acc[key]) acc[key] = [];
-                                        acc[key].push(finding);
-                                        return acc;
-                                    }, {})
-                                ).sort(([a], [b]) => a.localeCompare(b)).map(([groupName, issues]: [string, any]) => (
-                                    <button
-                                        key={groupName}
-                                        onClick={() => setSelectedGroupName(groupName)}
-                                        className={cn(
-                                            "w-full text-left px-3 py-3 rounded-lg transition-all group relative overflow-hidden",
-                                            selectedGroupName === groupName
-                                                ? "bg-indigo-600/20 border border-indigo-500/30 text-indigo-100"
-                                                : "hover:bg-white/5 text-slate-400 border border-transparent"
-                                        )}
-                                    >
-                                        <div className="flex items-start gap-3">
-                                            {groupBy === 'file' ? (
-                                                <FileCode className={cn("w-4 h-4 mt-0.5", selectedGroupName === groupName ? "text-indigo-400" : "text-slate-500")} />
-                                            ) : (
-                                                <Shield className={cn("w-4 h-4 mt-0.5", selectedGroupName === groupName ? "text-indigo-400" : "text-slate-500")} />
-                                            )}
-                                            <div className="flex-1 min-w-0">
-                                                <p className="text-sm font-medium truncate leading-tight">{groupName}</p>
-                                                <p className="text-[10px] mt-1 text-slate-500">
-                                                    {issues.length} {issues.length === 1 ? 'vấn đề' : 'vấn đề'}
-                                                </p>
-                                            </div>
-                                            {selectedGroupName === groupName && (
-                                                <ChevronRight className="w-4 h-4 text-indigo-400" />
-                                            )}
-                                        </div>
-                                    </button>
+
+                    {/* Stats Overview */}
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                        {Object.entries(scanData.stats.findings).map(([severity, count], index) => {
+                            const Icon = severityIcons[severity as keyof typeof severityIcons] || Info
+                            const colorClass = severityColors[severity as keyof typeof severityColors] || severityColors.info
+                            return (
+                                <motion.div
+                                    key={severity}
+                                    initial={{ opacity: 0, y: 20 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    transition={{ delay: index * 0.05 }}
+                                    className={cn("glass-card p-4 md:p-6", colorClass)}
+                                >
+                                    <div className="flex items-center justify-between mb-2">
+                                        <Icon className="w-5 h-5" />
+                                        <span className="text-2xl md:text-3xl font-bold">{count as number}</span>
+                                    </div>
+                                    <p className="text-sm font-medium capitalize">{severity}</p>
+                                </motion.div>
+                            )
+                        })}
+                    </div>
+
+                    {/* Filters */}
+                    <div className="flex flex-col md:flex-row gap-4">
+                        <div className="flex gap-2">
+                            <select
+                                value={selectedSeverity}
+                                onChange={(e) => setSelectedSeverity(e.target.value)}
+                                className="px-4 py-2 bg-slate-900 border border-white/10 rounded-lg outline-none focus:border-indigo-500 transition-colors text-sm"
+                            >
+                                <option value="all">All Severities</option>
+                                <option value="critical">Critical</option>
+                                <option value="high">High</option>
+                                <option value="medium">Medium</option>
+                                <option value="low">Low</option>
+                            </select>
+                            <select
+                                value={selectedCategory}
+                                onChange={(e) => setSelectedCategory(e.target.value)}
+                                className="px-4 py-2 bg-slate-900 border border-white/10 rounded-lg outline-none focus:border-indigo-500 transition-colors text-sm"
+                            >
+                                <option value="all">All Categories</option>
+                                {Array.from(new Set(scanData.findings.map((f: any) => f.category))).map((cat: any) => (
+                                    <option key={cat} value={cat}>{cat}</option>
                                 ))}
-                            </div>
+                            </select>
+                            <select
+                                value={groupBy}
+                                onChange={(e) => {
+                                    setGroupBy(e.target.value as 'none' | 'file' | 'rule')
+                                }}
+                                className="px-4 py-2 bg-slate-900 border border-white/10 rounded-lg outline-none focus:border-indigo-500 transition-colors text-sm"
+                            >
+                                <option value="none">Không nhóm</option>
+                                <option value="file">Nhóm theo File</option>
+                                <option value="rule">Nhóm theo Lỗi</option>
+                            </select>
                         </div>
+                        <div className="md:ml-auto text-sm text-muted-foreground flex items-center gap-2">
+                            Hiển thị <span className="font-bold text-white">{filteredFindings.length}</span> trên <span className="font-bold text-white">{totalFindingsCount}</span> lỗi phát hiện
+                        </div>
+                    </div>
 
-                        {/* Main Content */}
-                        <div className="flex-1 min-w-0 space-y-4">
-                            {selectedGroupName ? (
-                                <>
-                                    <div className="flex items-center gap-3 mb-6 p-4 glass-card border-l-4 border-l-indigo-500">
-                                        <div>
-                                            <h2 className="text-lg font-bold text-white mb-0.5 flex items-center gap-2">
-                                                {groupBy === 'file' ? (
-                                                    <FileCode className="w-5 h-5 text-indigo-400" />
-                                                ) : (
-                                                    <Shield className="w-5 h-5 text-indigo-400" />
+                    {/* Findings List */}
+                    <div className="space-y-6">
+                        {groupBy === 'none' ? (
+                            <div className="space-y-4">
+                                {filteredFindings.map((finding: any, index: number) => renderFinding(finding, index))}
+                                {filteredFindings.length === 0 && renderNoFindings()}
+                            </div>
+                        ) : (
+                            <div className="flex flex-col md:flex-row gap-6 min-h-[600px]">
+                                {/* Sidebar */}
+                                <div className="w-full md:w-80 flex-shrink-0 space-y-2">
+                                    <div className="text-xs font-bold text-slate-500 uppercase tracking-widest px-2 mb-4">
+                                        {groupBy === 'file' ? 'Danh sách File' : 'Danh sách Lỗi'}
+                                    </div>
+                                    <div className="glass-card p-2 max-h-[70vh] overflow-y-auto custom-scrollbar">
+                                        {Object.entries(
+                                            filteredFindings.reduce((acc: any, finding: any) => {
+                                                const key = groupBy === 'file' ? removeBasePath(finding.file, basePath) : finding.title;
+                                                if (!acc[key]) acc[key] = [];
+                                                acc[key].push(finding);
+                                                return acc;
+                                            }, {})
+                                        ).sort(([a], [b]) => a.localeCompare(b)).map(([groupName, issues]: [string, any]) => (
+                                            <button
+                                                key={groupName}
+                                                onClick={() => setSelectedGroupName(groupName)}
+                                                className={cn(
+                                                    "w-full text-left px-3 py-3 rounded-lg transition-all group relative overflow-hidden",
+                                                    selectedGroupName === groupName
+                                                        ? "bg-indigo-600/20 border border-indigo-500/30 text-indigo-100"
+                                                        : "hover:bg-white/5 text-slate-400 border border-transparent"
                                                 )}
-                                                {selectedGroupName}
-                                            </h2>
-                                            <p className="text-xs text-muted-foreground font-mono">
-                                                {filteredFindings.filter((f: any) => (groupBy === 'file' ? f.file : f.title) === selectedGroupName).length} lỗi được phát hiện
+                                            >
+                                                <div className="flex items-start gap-3">
+                                                    {groupBy === 'file' ? (
+                                                        <FileCode className={cn("w-4 h-4 mt-0.5", selectedGroupName === groupName ? "text-indigo-400" : "text-slate-500")} />
+                                                    ) : (
+                                                        <Shield className={cn("w-4 h-4 mt-0.5", selectedGroupName === groupName ? "text-indigo-400" : "text-slate-500")} />
+                                                    )}
+                                                    <div className="flex-1 min-w-0">
+                                                        <p className="text-sm font-medium truncate leading-tight">{groupName}</p>
+                                                        <p className="text-[10px] mt-1 text-slate-500">
+                                                            {issues.length} {issues.length === 1 ? 'vấn đề' : 'vấn đề'}
+                                                        </p>
+                                                    </div>
+                                                    {selectedGroupName === groupName && (
+                                                        <ChevronRight className="w-4 h-4 text-indigo-400" />
+                                                    )}
+                                                </div>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Main Content */}
+                                <div className="flex-1 min-w-0 space-y-4">
+                                    {selectedGroupName ? (
+                                        <>
+                                            <div className="flex items-center gap-3 mb-6 p-4 glass-card border-l-4 border-l-indigo-500">
+                                                <div>
+                                                    <h2 className="text-lg font-bold text-white mb-0.5 flex items-center gap-2">
+                                                        {groupBy === 'file' ? (
+                                                            <FileCode className="w-5 h-5 text-indigo-400" />
+                                                        ) : (
+                                                            <Shield className="w-5 h-5 text-indigo-400" />
+                                                        )}
+                                                        {selectedGroupName}
+                                                    </h2>
+                                                    <p className="text-xs text-muted-foreground font-mono">
+                                                        {filteredFindings.filter((f: any) => (groupBy === 'file' ? removeBasePath(f.file, basePath) : f.title) === selectedGroupName).length} lỗi được phát hiện
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <div className="space-y-4">
+                                                {filteredFindings
+                                                    .filter((finding: any) => (groupBy === 'file' ? removeBasePath(finding.file, basePath) : finding.title) === selectedGroupName)
+                                                    .map((finding: any, index: number) => renderFinding(finding, index))}
+                                            </div>
+                                        </>
+                                    ) : (
+                                        <div className="glass-card h-full flex flex-col items-center justify-center p-12 text-center opacity-60">
+                                            <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mb-4">
+                                                <ChevronDown className="w-8 h-8 text-slate-500" />
+                                            </div>
+                                            <h3 className="text-xl font-semibold mb-2 text-slate-300">Chọn một {groupBy === 'file' ? 'File' : 'Lỗi'} bên trái</h3>
+                                            <p className="text-muted-foreground text-sm max-w-xs mx-auto">
+                                                Chọn một mục từ danh sách để xem chi tiết các vấn đề bảo mật được phát hiện.
                                             </p>
                                         </div>
-                                    </div>
-                                    <div className="space-y-4">
-                                        {filteredFindings
-                                            .filter((finding: any) => (groupBy === 'file' ? finding.file : finding.title) === selectedGroupName)
-                                            .map((finding: any, index: number) => renderFinding(finding, index))}
-                                    </div>
-                                </>
-                            ) : (
-                                <div className="glass-card h-full flex flex-col items-center justify-center p-12 text-center opacity-60">
-                                    <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mb-4">
-                                        <ChevronDown className="w-8 h-8 text-slate-500" />
-                                    </div>
-                                    <h3 className="text-xl font-semibold mb-2 text-slate-300">Chọn một {groupBy === 'file' ? 'File' : 'Lỗi'} bên trái</h3>
-                                    <p className="text-muted-foreground text-sm max-w-xs mx-auto">
-                                        Chọn một mục từ danh sách để xem chi tiết các vấn đề bảo mật được phát hiện.
-                                    </p>
+                                    )}
+                                    {filteredFindings.length === 0 && renderNoFindings()}
                                 </div>
-                            )}
-                            {filteredFindings.length === 0 && renderNoFindings()}
-                        </div>
+                            </div>
+                        )}
                     </div>
-                )}
+                </div>
+
+                {/* Right Sidebar: File Tree */}
+                <div className="lg:col-span-1">
+                    <div className="glass-card h-[calc(100vh-100px)] sticky top-6 overflow-hidden flex flex-col">
+                        <FileTree
+                            data={scanData.fileTree || buildFileTreeFromFindings(scanData.findings)}
+                            selectedFile={selectedGroupName && groupBy === 'file' ? selectedGroupName : null}
+                            onSelectFile={(path) => {
+                                setGroupBy('file');
+                                setSelectedGroupName(path);
+                            }}
+                        />
+                    </div>
+                </div>
             </div>
         </div>
     )

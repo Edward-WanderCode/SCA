@@ -19,6 +19,7 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
+import ServerFileBrowserModal from "@/components/ServerFileBrowserModal"
 
 type ScanStep = 'setup' | 'scanning' | 'results'
 
@@ -45,7 +46,7 @@ function ScanPageContent() {
     const [isScanning, setIsScanning] = useState(false)
     const [progress, setProgress] = useState(0)
     const [repoUrl, setRepoUrl] = useState('')
-    const [folderPath, setFolderPath] = useState('')
+    const [folderPath, setFolderPath] = useState<string>('')
     const [ruleSet, setRuleSet] = useState('Community (Standard)')
     const [findings, setFindings] = useState<any[]>([])
     const [languages, setLanguages] = useState<string[]>([])
@@ -61,6 +62,8 @@ function ScanPageContent() {
         languages: { name: string, rules: number, files: number }[],
         origins: { name: string, rules: number }[]
     } | null>(null)
+    const [showFileBrowser, setShowFileBrowser] = useState(false)
+
 
     const startScanWithParams = async (scanMethod: string, scanUrl: string, scanPath: string, compareId?: string) => {
         setIsScanning(true)
@@ -306,7 +309,7 @@ function ScanPageContent() {
                                         <input
                                             type="text"
                                             placeholder="https://github.com/username/repo"
-                                            value={repoUrl}
+                                            value={repoUrl || ''}
                                             onChange={(e) => setRepoUrl(e.target.value)}
                                             className="flex-1 bg-slate-900 border border-white/10 rounded-lg px-4 py-2 outline-none focus:border-primary transition-colors"
                                         />
@@ -353,30 +356,23 @@ function ScanPageContent() {
                                                     <>
                                                         <div className="flex items-center gap-2">
                                                             <input
+                                                                key="server-folder-input"
                                                                 type="text"
                                                                 placeholder="e.g. D:\Code\MyProject (Server Path)"
-                                                                value={folderPath}
+                                                                value={folderPath ?? ''}
                                                                 onChange={(e) => setFolderPath(e.target.value)}
                                                                 className="flex-1 bg-black/20 border border-white/10 rounded-lg px-4 py-3 outline-none focus:border-primary transition-colors font-mono text-sm"
                                                             />
                                                             <button
-                                                                onClick={async (e) => {
+                                                                onClick={(e) => {
                                                                     e.preventDefault();
-                                                                    try {
-                                                                        const response = await fetch('/api/utils/select-folder');
-                                                                        const data = await response.json();
-                                                                        if (data.success && data.path) {
-                                                                            setFolderPath(data.path);
-                                                                        }
-                                                                    } catch (err) {
-                                                                        console.error('Failed to open folder picker:', err);
-                                                                    }
+                                                                    setShowFileBrowser(true);
                                                                 }}
                                                                 className="px-6 py-3 bg-secondary hover:bg-secondary/90 text-white font-medium rounded-lg transition-colors flex items-center gap-2 whitespace-nowrap"
-                                                                title="Opens a file dialog on the SERVER's monitor (Best for Localhost usage)"
+                                                                title="Browse files on the server"
                                                             >
                                                                 <FolderOpen className="w-4 h-4" />
-                                                                Server Dialog
+                                                                Browse Files
                                                             </button>
                                                         </div>
                                                         <p className="text-xs text-muted-foreground text-left pl-1">
@@ -722,6 +718,16 @@ function ScanPageContent() {
                         </motion.div>
                     )}
             </AnimatePresence>
+
+            <ServerFileBrowserModal
+                isOpen={showFileBrowser}
+                onClose={() => setShowFileBrowser(false)}
+                onSelect={(path) => {
+                    setFolderPath(path);
+                    setShowFileBrowser(false);
+                }}
+                initialPath={folderPath}
+            />
         </div>
     )
 }

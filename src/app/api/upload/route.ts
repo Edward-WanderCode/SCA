@@ -9,14 +9,16 @@ export async function POST(request: Request) {
     try {
         const formData = await request.formData()
         const files = formData.getAll('files') as File[]
+        const folderName = formData.get('folderName') as string || 'uploaded-source'
 
         if (!files || files.length === 0) {
             return NextResponse.json({ error: 'No files uploaded' }, { status: 400 })
         }
 
-        // Create a temporary directory
+        // Create a temporary directory in project root Remote folder
         const scanId = uuidv4()
-        const tempDir = join(os.tmpdir(), 'sca-uploads', scanId)
+        // Create deeper structure: Remote/scanId/folderName
+        const tempDir = join(process.cwd(), 'Remote', scanId, folderName)
         await mkdir(tempDir, { recursive: true })
 
         let fileCount = 0

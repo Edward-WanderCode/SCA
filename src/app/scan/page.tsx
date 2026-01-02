@@ -167,6 +167,14 @@ function ScanPageContent() {
 
             try {
                 const formData = new FormData()
+
+                // Determine folder name from the first file's path
+                let folderName = 'uploaded-project'
+                if (clientFiles.length > 0 && clientFiles[0].webkitRelativePath) {
+                    folderName = clientFiles[0].webkitRelativePath.split('/')[0]
+                }
+                formData.append('folderName', folderName)
+
                 // Convert FileList to Array and append
                 Array.from(clientFiles).forEach(file => {
                     // Use webkitRelativePath if available to preserve structure
@@ -188,7 +196,7 @@ function ScanPageContent() {
 
                 if (data.success && data.path) {
                     // Start scan with the temp path on server
-                    startScanWithParams('folder', null, data.path)
+                    startScanWithParams('folder', '', data.path)
                 } else {
                     throw new Error('Upload succeeded but no path returned')
                 }

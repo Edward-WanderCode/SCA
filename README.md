@@ -9,7 +9,8 @@ SCA (Security Code Analysis) là nền tảng quản lý quét bảo mật mã n
 ## 🚀 Tính Năng Chính
 
 *   **⚡ Web-based Dashboard Cao Cấp**: Giao diện người dùng hiện đại, hỗ trợ Dark Mode, Glassmorphism và điều hướng mượt mà.
-*   **🔍 OpenGrep Integration**: Tích hợp sâu với OpenGrep (fork của Semgrep) cho tốc độ quét cực nhanh và hỗ trợ đa ngôn ngữ (Python, Java, JS/TS, Go, C#...).
+*   **🔍 OpenGrep Integration (SAST)**: Phân tích mã nguồn tĩnh (Static Analysis) giúp phát hiện lỗi logic và lỗ hổng bảo mật trong code (Python, Java, JS/TS, Go, C#...).
+*   **📦 Trivy Integration (SCA)**: Quét các thư viện phụ thuộc (Dependencies), phát hiện các lỗ hổng đã biết (CVE) và tìm kiếm Secret/API Key bị lộ.
 *   **📊 Báo Cáo & Trực Quan Hóa**:
     *   Biểu đồ thống kê lỗ hổng theo mức độ nghiêm trọng.
     *   Xuất báo cáo **PDF** chuyên nghiệp cho các đợt kiểm toán (Audit).
@@ -37,22 +38,55 @@ Dự án sử dụng các công nghệ tiên tiến nhất hiện nay:
 ### 1. Yêu Cầu Hệ Thống
 *   Node.js 18+ (Khuyên dùng bản mới nhất)
 *   Git
-*   Binary `opengrep.exe` (đã bao gồm trong thư mục `OpenGrep/`)
+*   **OpenGrep & Trivy**: Cần có các file thực thi (binary) để quét.
+    *   `OpenGrep/opengrep.exe` (cho SAST)
+    *   `Trivy/trivy.exe` (cho SCA & Secrets)
 
-### 2. Cài Đặt Dependencies
+### 2. ⚙️ Thiết Lập Engine Quét (OpenGrep & Trivy)
+
+Để hệ thống hoạt động offline, bạn cần tải về các binary của OpenGrep và Trivy. Dự án đã tích hợp sẵn script tự động:
+
+```bash
+npm run setup
+```
+Script này sẽ:
+1.  Tự động tải `opengrep.exe` và `trivy.exe` mới nhất.
+2.  Cài đặt vào thư mục `OpenGrep/` và `Trivy/` trong project.
+
+*Lưu ý: Nếu script gặp lỗi mạng, bạn có thể thực hiện thủ công như sau:*
+
+**Manual Setup (Fallback)**
+*   **OpenGrep**: Tải `opengrep.exe` (Windows x64) từ [GitHub Releases](https://github.com/opengrep/opengrep/releases) -> bỏ vào thư mục `OpenGrep/`.
+*   **Trivy**: Tải `trivy_windows-64bit.zip` từ [GitHub Releases](https://github.com/aquasecurity/trivy/releases) -> giải nén lấy `trivy.exe` -> bỏ vào thư mục `Trivy/`.
+
+### 🔄 Cập Nhật Rules & Database (Offline Mode)
+Để chuẩn bị dữ liệu quét cho môi trường offline, hãy chạy lệnh sau (khi có mạng):
+
+```bash
+npm run update-rules
+```
+Lệnh này sẽ:
+1.  Tải rules mới nhất từ `opengrep/opengrep-rules` về thư mục `OpenGrep/rules`.
+2.  Tải Trivy Vulnerability DB về thư mục `Trivy/cache`.
+
+Khi quét, hệ thống sẽ tự động sử dụng rules và DB đã tải về mà không cần kết nối mạng.
+
+---
+
+### 3. Cài Đặt Dependencies
 
 ```bash
 npm install
 ```
 
-### 3. Khởi Chạy Môi Trường Cục Bộ (Development)
+### 4. Khởi Chạy Môi Trường Cục Bộ (Development)
 
 ```bash
 npm run dev
 ```
 Truy cập ứng dụng tại: `http://localhost:3000`
 
-### 4. Build Production
+### 5. Build Production
 
 ```bash
 npm run build
@@ -83,6 +117,8 @@ e:\Code\SCA\
 *   `npm run dev`: Chạy server phát triển.
 *   `npm run build`: Build ứng dụng cho môi trường production.
 *   `npm run start`: Chạy server production.
+*   `npm run setup`: Tự động tải và cài đặt OpenGrep & Trivy binaries.
+*   `npm run update-rules`: Cập nhật Rules và Database cho chế độ Offline.
 *   `npm run lint`: Kiểm tra lỗi code với ESLint.
 *   `npm run scan-local`: Chạy thử nghiệm OpenGrep quét thư mục hiện tại qua CLI.
 

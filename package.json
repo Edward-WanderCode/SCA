@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "scan-local": ".\\OpenGrep\\opengrep.exe --config=auto"
+    "scan-local": ".\\OpenGrep\\opengrep.exe --config=auto",
+    "setup": "powershell -ExecutionPolicy Bypass -File scripts/setup-engines.ps1",
+    "update-rules": "powershell -ExecutionPolicy Bypass -File scripts/update-rules.ps1"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.1",

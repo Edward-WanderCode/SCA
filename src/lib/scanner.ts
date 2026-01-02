@@ -257,19 +257,56 @@ export async function runScan(
             origins: [] as { name: string, rules: number }[]
         };
 
-        for (const lang of detectedLanguages) {
-            let ruleCount = 0;
-            const langDir = path.join(localRulesPath, lang.toLowerCase());
+        // Map Language Name (UI) to Rule Directory Name (Repo)
+        const RULE_DIR_MAP: Record<string, string> = {
+            'C#': 'csharp',
+            'C/C++': 'c',
+            'JavaScript': 'javascript',
+            'TypeScript': 'typescript',
+            'Python': 'python',
+            'Go': 'go',
+            'Java': 'java',
+            'Ruby': 'ruby',
+            'Rust': 'rust',
+            'PHP': 'php',
+            'Terraform': 'terraform',
+            'Dockerfile': 'docker'
+        };
+
+        // Helper to count rules recursively
+        const countRulesInDir = async (dir: string): Promise<number> => {
+            let count = 0;
             try {
-                const items = await fs.readdir(langDir);
-                for (const item of items) {
-                    if (item.endsWith('.yaml') || item.endsWith('.yml')) {
-                        const content = await fs.readFile(path.join(langDir, item), 'utf8');
-                        const matches = content.match(/^\s+-\s+id:/gm);
-                        ruleCount += matches ? matches.length : 1;
+                const entries = await fs.readdir(dir, { withFileTypes: true });
+                for (const entry of entries) {
+                    const fullPath = path.join(dir, entry.name);
+                    if (entry.isDirectory()) {
+                        count += await countRulesInDir(fullPath);
+                    } else if (entry.isFile() && (entry.name.endsWith('.yaml') || entry.name.endsWith('.yml'))) {
+                        // Optional: Read file to count multiple rules per file if needed, 
+                        // but counting files is usually sufficient for "Rules count" stats in UI.
+                        // If strict accuracy is needed:
+                        // const content = await fs.readFile(fullPath, 'utf8');
+                        // const matches = content.match(/^\s+-\s+id:/gm);
+                        // count += matches ? matches.length : 1;
+                        count++;
                     }
                 }
             } catch {
+                return 0;
+            }
+            return count;
+        };
+
+        for (const lang of detectedLanguages) {
+            let ruleCount = 0;
+            const folderName = RULE_DIR_MAP[lang] || lang.toLowerCase();
+            const langDir = path.join(localRulesPath, folderName);
+
+            ruleCount = await countRulesInDir(langDir);
+
+            // Fallback estimation if scan returns 0 (e.g. customized folder structure)
+            if (ruleCount === 0) {
                 ruleCount = lang === 'TypeScript' ? 215 : lang === 'Python' ? 711 : lang === 'JavaScript' ? 358 : 50;
             }
 

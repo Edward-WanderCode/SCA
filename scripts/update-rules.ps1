@@ -19,7 +19,7 @@ if (-not (Test-Path $rulesCacheDir)) { New-Item -ItemType Directory -Force -Path
 if (Test-Path "$rulesCacheDir\.git") {
     Write-Host "   Pulling latest changes in cache..."
     try {
-        git -C $rulesCacheDir pull
+        git -C $rulesCacheDir -c safe.directory=* pull
         Write-Host "   ✅ Rules cache updated."
     } catch {
         Write-Warning "   ⚠️ Git pull failed: $_"

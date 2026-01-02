@@ -23,8 +23,9 @@ export async function downloadOpenGrepRules() {
         if (cacheExists && dotGitExists) {
             console.log('[OpenGrep] Updating rules cache...');
             logger.addLog('REGISTRY', 'Updating rules cache from GitHub...');
-            await execAsync('git reset --hard', { cwd: cacheDir });
-            await execAsync('git pull', { cwd: cacheDir });
+            // Fix: Add safe.directory configuration to avoid "dubious ownership" errors on Windows
+            await execAsync('git -c safe.directory=* reset --hard', { cwd: cacheDir });
+            await execAsync('git -c safe.directory=* pull', { cwd: cacheDir });
             logger.addLog('REGISTRY', 'Rules cache successfully updated');
         } else {
             console.log('[OpenGrep] Initializing rules cache...');
@@ -32,6 +33,7 @@ export async function downloadOpenGrepRules() {
             if (cacheExists) {
                 await fs.rm(cacheDir, { recursive: true, force: true });
             }
+            // Clone usually establishes ownership correctly, but strict environments might still complain later
             await execAsync(`git clone --depth 1 ${repoUrl} "${cacheDir}"`);
             logger.addLog('REGISTRY', 'Rules cache successfully cloned');
         }

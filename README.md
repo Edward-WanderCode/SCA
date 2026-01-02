@@ -1,210 +1,94 @@
-# Antigravity SCA - Advanced Static Code Analyzer
+# SCA - Security Code Analysis Platform
 
-Phần mềm quét code tĩnh đa ngôn ngữ với giao diện Next.js cao cấp và community-driven security rules.
+**Phần mềm phân tích mã nguồn và bảo mật toàn diện với giao diện hiện đại.**
 
-## 🚀 Features
-
-- ✅ **Multi-language Support**: TypeScript, JavaScript, Python, Go, Java, C/C++...
-- ✅ **Community Rules**: 1,250+ rules từ Semgrep Registry (OWASP, Security Audit...)
-- ✅ **Premium Dashboard**: Dark mode, glassmorphism, smooth animations
-- ✅ **Fast Scanning**: Local cache giúp quét nhanh gấp 10x (3s vs 30s)
-- ✅ **Offline Ready**: Hoạt động hoàn toàn offline sau khi cache rules
-- ✅ **Real-time Terminal**: Agent logs monitoring
+SCA (Security Code Analysis) là nền tảng quản lý quét bảo mật mã nguồn tĩnh (Static Application Security Testing - SAST), được xây dựng trên công nghệ **Next.js 16** mới nhất và tích hợp công cụ quét mạnh mẽ **OpenGrep**. Dự án cung cấp giao diện trực quan, báo cáo chi tiết và khả năng quản lý quy trình quét bảo mật hiệu quả.
 
 ---
 
-## 🛠 Tech Stack
+## 🚀 Tính Năng Chính
 
-- **Frontend**: Next.js 15, Tailwind CSS, Framer Motion, Lucide React
-- **Backend**: Next.js API Routes (Node.js)
-- **Scanner Engine**: Semgrep CLI with community registry rules
+*   **⚡ Web-based Dashboard Cao Cấp**: Giao diện người dùng hiện đại, hỗ trợ Dark Mode, Glassmorphism và điều hướng mượt mà.
+*   **🔍 OpenGrep Integration**: Tích hợp sâu với OpenGrep (fork của Semgrep) cho tốc độ quét cực nhanh và hỗ trợ đa ngôn ngữ (Python, Java, JS/TS, Go, C#...).
+*   **📊 Báo Cáo & Trực Quan Hóa**:
+    *   Biểu đồ thống kê lỗ hổng theo mức độ nghiêm trọng.
+    *   Xuất báo cáo **PDF** chuyên nghiệp cho các đợt kiểm toán (Audit).
+*   **🖥️ Real-time Terminal**: Theo dõi tiến trình quét và log chi tiết trực tiếp trên trình duyệt.
+*   **🛡️ Quản Lý Rules**: Tải xuống và cập nhật các bộ luật bảo mật (Security Rules) từ cộng đồng và các tổ chức uy tín (OWASP, v.v.).
+*   **🔐 Authentication**: Tích hợp sẵn hệ thống xác thực người dùng (NextAuth.js).
 
 ---
 
-## 🚦 Quick Start
+## 🛠️ Tech Stack
 
-### 1. Installation
+Dự án sử dụng các công nghệ tiên tiến nhất hiện nay:
+
+*   **Frontend**: [Next.js 16](https://nextjs.org/) (App Router), [React 19](https://react.dev/), [Tailwind CSS 4](https://tailwindcss.com/)
+*   **UI Components**: Lucide React, Framer Motion (Animations), Recharts (Biểu đồ)
+*   **Backend / API**: Next.js Server Actions & API Routes
+*   **Database**: Prisma ORM (kết nối SQLite/PostgreSQL)
+*   **Core Engine**: [OpenGrep](https://github.com/opengrep/opengrep) (Static Analysis)
+*   **Utilities**: jspdf (Xuất PDF), Zod (Validation), Date-fns
+
+---
+
+## 🚦 Cài Đặt & Sử Dụng
+
+### 1. Yêu Cầu Hệ Thống
+*   Node.js 18+ (Khuyên dùng bản mới nhất)
+*   Git
+*   Binary `opengrep.exe` (đã bao gồm trong thư mục `OpenGrep/`)
+
+### 2. Cài Đặt Dependencies
+
 ```bash
 npm install
 ```
 
-### 2. Cache Security Rules (một lần)
-```bash
-npm run update-rules
-```
-⏱️ Mất ~1-2 phút để cache 1,250+ rules
+### 3. Khởi Chạy Môi Trường Cục Bộ (Development)
 
-### 3. Run Development Server
 ```bash
 npm run dev
 ```
-🌐 Mở http://localhost:3000
+Truy cập ứng dụng tại: `http://localhost:3000`
 
----
-
-## 📋 Available Scripts
-
-```bash
-npm run dev              # Start dev server
-npm run build            # Build production
-npm run update-rules     # Update & cache security rules
-npm run rules:info       # View cached rules info
-```
-
----
-
-## 🔥 Rule Management
-
-### Cached Rule Packs (1,250+ rules)
-- `p/security-audit` - 500+ core security vulnerabilities
-- `p/owasp-top-ten` - 300+ OWASP Top 10 patterns
-- `p/javascript` - 200+ JavaScript/TypeScript rules
-- `p/typescript` - 150+ TypeScript-specific
-- `p/react` - 100+ React security patterns
-
-### Update Rules (khuyến nghị hàng tuần)
-```bash
-npm run update-rules
-```
-
-### Check Rules Status
-```bash
-npm run rules:info
-```
-
----
-
-## ⚡ Performance
-
-| Metric | Without Cache | With Cache | Improvement |
-|--------|---------------|------------|-------------|
-| Scan Time | 30 seconds | **3 seconds** | 10x faster |
-| Internet | Required | Optional | Offline mode |
-| Bandwidth | ~2MB/scan | 0 MB | 100% saved |
-
----
-
-## 📂 Project Structure
-
-```
-├── src/
-│   ├── app/              # Next.js pages & API routes
-│   │   ├── page.tsx      # Dashboard
-│   │   ├── scan/         # New Scan page  
-│   │   ├── rules/        # Rules Registry
-│   │   ├── terminal/     # Agent Terminal
-│   │   └── api/scan/     # Scanning API
-│   ├── components/       # UI components
-│   │   └── Sidebar.tsx
-│   └── lib/              # Utilities
-│       ├── scanner.ts    # Semgrep wrapper
-│       └── utils.ts
-├── scripts/
-│   ├── update-rules.js   # Rule caching script
-│   └── rules-info.js     # Rule info display
-└── .semgrep-rules/       # Cached rules metadata
-```
-
----
-
-## 🔧 How It Works
-
-### Scanning Flow:
-1. User inputs Git URL or uploads files via web UI
-2. Backend clones repo to temp folder (if Git URL)
-3. Semgrep scans with cached rules from `~/.semgrep/`
-4. Results parsed and displayed in premium UI
-5. Temp files cleaned up
-
-### Rule Caching:
-- Rules cached in Semgrep's internal cache (`~/.semgrep/`)
-- No internet needed after initial `npm run update-rules`
-- Metadata tracked in `.semgrep-rules/metadata.json`
-
----
-
-## 🛡 Security Rules Sources
-
-Primary: **Semgrep Registry** (https://semgrep.dev/r)
-- 2,300+ rules, cập nhật hàng tuần
-- Community-driven (OWASP, r2c, GitHub Security Lab)
-- Miễn phí 100% cho commercial use
-
----
-
-## 🎯 Usage Workflow
-
-### Lần Đầu (Setup)
-```bash
-npm install
-npm run update-rules  # Cache rules (~2 phút)
-npm run dev
-```
-
-### Hàng Ngày
-```bash
-npm run dev  # Quét tự động dùng cached rules (3 giây)
-```
-
-### Update Rules (Định Kỳ)
-```bash
-npm run update-rules  # Khuyến nghị: hàng tuần
-```
-
----
-
-## 🐛 Troubleshooting
-
-### Rules out of date
-```bash
-npm run rules:info     # Check age
-npm run update-rules   # Update if needed
-```
-
-### Scan still slow
-```bash
-# Verify rules are cached
-npm run rules:info
-
-# Re-cache if needed
-npm run update-rules
-```
-
----
-
-## 📊 Rule Pack Details
-
-View detailed info about cached rules:
-```bash
-npm run rules:info
-```
-
-Output mẫu:
-```
-📦 Semgrep Rules Cache Information
-📅 Last Updated: 30/12/2024
-📋 Cached Rule Packs: 5 packs
-✅ Rules are fresh (0 days old)
-```
-
----
-
-## 🚀 Production Deployment
+### 4. Build Production
 
 ```bash
 npm run build
-npm start
+npm run start
 ```
 
-**Environment Variables:**
-- (Optional) Configure in `.env.local` nếu cần
+---
+
+## 📂 Cấu Trúc Dự Án
+
+```
+e:\Code\SCA\
+├── src\
+│   ├── app\             # Next.js App Router (Pages & API)
+│   │   ├── history\     # Lịch sử quét
+│   │   ├── scan\        # Chức năng quét mới
+│   │   ├── terminal\    # Giao diện Terminal
+│   │   ├── rules\       # Quản lý Rules
+│   ├── components\      # UI Components tái sử dụng
+│   ├── lib\             # Tiện ích (Scanner wrapper, PDF export...)
+├── OpenGrep\            # Chứa binary OpenGrep và config
+├── public\              # Static assets
+└── ...
+```
+
+## 📝 Available Scripts
+
+*   `npm run dev`: Chạy server phát triển.
+*   `npm run build`: Build ứng dụng cho môi trường production.
+*   `npm run start`: Chạy server production.
+*   `npm run lint`: Kiểm tra lỗi code với ESLint.
+*   `npm run scan-local`: Chạy thử nghiệm OpenGrep quét thư mục hiện tại qua CLI.
 
 ---
 
-## 📝 License
+## 🛡️ License
 
-MIT
-
----
-
-**Built with ❤️ by Antigravity**
+Private / Internal Project.
+Built with ❤️ by **Antigravity**.

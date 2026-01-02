@@ -19,7 +19,48 @@ const COLORS = {
     }
 };
 
-export const exportScanToPDF = (scanData: any) => {
+interface Finding {
+    severity: string;
+    title: string;
+    message: string;
+    category: string;
+    file: string;
+    line: number;
+    code?: string;
+}
+
+interface DocWithAutoTable extends jsPDF {
+    lastAutoTable: { finalY: number };
+    internal: {
+        getNumberOfPages: () => number;
+        pageSize: { getWidth: () => number; getHeight: () => number; };
+    } & jsPDF['internal'];
+}
+
+interface ScanData {
+    severity: string;
+    title: string;
+    message: string;
+    category: string;
+    file: string;
+    line: number;
+    code?: string;
+}
+
+interface ScanData {
+    id: string;
+    timestamp: string;
+    source: { name: string; type: string };
+    stats: {
+        filesScanned: number;
+        linesScanned: number | string;
+        duration: number;
+        findings: Record<string, number>;
+    };
+    findings: Finding[];
+}
+
+export const exportScanToPDF = (scanData: ScanData) => {
     try {
         const { source, stats, findings, timestamp, id } = scanData;
         console.log('Generating Modern PDF for:', source.name);
@@ -90,7 +131,7 @@ export const exportScanToPDF = (scanData: any) => {
         const severities = ['critical', 'high', 'medium', 'low', 'info'];
         let tocY = 75;
         severities.forEach((sev) => {
-            const count = findings.filter((f: any) => f.severity === sev).length;
+            const count = findings.filter((f: Finding) => f.severity === sev).length;
             if (count > 0) {
                 doc.setFontSize(11);
                 doc.setFont('helvetica', 'normal');
@@ -120,9 +161,7 @@ export const exportScanToPDF = (scanData: any) => {
             headStyles: { fillColor: COLORS.PRIMARY as [number, number, number] },
         });
 
-        const summaryFinalY = (doc as any).lastAutoTable.finalY + 15;
-
-        const barChartY = (doc as any).lastAutoTable.finalY + 15;
+        const barChartY = (doc as unknown as DocWithAutoTable).lastAutoTable.finalY + 15;
         doc.setFontSize(12);
         doc.text('Visual Severity Distribution', 15, barChartY);
 
@@ -177,21 +216,21 @@ export const exportScanToPDF = (scanData: any) => {
         });
 
         // Top Vulnerable Files
-        const fileCounts = findings.reduce((acc: any, f: any) => {
+        const fileCounts = findings.reduce((acc: Record<string, number>, f: Finding) => {
             acc[f.file] = (acc[f.file] || 0) + 1;
             return acc;
         }, {});
         const topFiles = Object.entries(fileCounts)
-            .sort((a: any, b: any) => b[1] - a[1])
+            .sort((a: [string, number], b: [string, number]) => b[1] - a[1])
             .slice(0, 5);
 
         if (topFiles.length > 0) {
-            const topFilesY = (doc as any).lastAutoTable.finalY + 15;
+            const topFilesY = (doc as unknown as DocWithAutoTable).lastAutoTable.finalY + 15;
             doc.text('Top Vulnerable Files', 15, topFilesY);
             autoTable(doc, {
                 startY: topFilesY + 5,
                 head: [['File Path', 'Issue Count']],
-                body: topFiles as any,
+                body: topFiles as (string | number)[][],
                 theme: 'striped',
                 headStyles: { fillColor: [100, 116, 139] as [number, number, number] },
             });
@@ -201,7 +240,7 @@ export const exportScanToPDF = (scanData: any) => {
         const severityPageMap: Record<string, number> = {};
 
         // Group findings by severity
-        const groupedBySeverity = findings.reduce((acc: any, f: any) => {
+        const groupedBySeverity = findings.reduce((acc: Record<string, Finding[]>, f: Finding) => {
             if (!acc[f.severity]) acc[f.severity] = [];
             acc[f.severity].push(f);
             return acc;
@@ -212,19 +251,19 @@ export const exportScanToPDF = (scanData: any) => {
             if (!sevFindings || sevFindings.length === 0) return;
 
             doc.addPage();
-            severityPageMap[sev] = (doc as any).internal.getNumberOfPages();
+            severityPageMap[sev] = (doc as unknown as DocWithAutoTable).internal.getNumberOfPages();
             drawHeader(doc, `Detailed Findings: ${sev.toUpperCase()}`);
 
             let currentY = 40;
 
             // Group by Title (Error Name) within Severity
-            const groupedByTitle = sevFindings.reduce((acc: any, f: any) => {
+            const groupedByTitle = sevFindings.reduce((acc: Record<string, Finding[]>, f: Finding) => {
                 if (!acc[f.title]) acc[f.title] = [];
                 acc[f.title].push(f);
                 return acc;
             }, {});
 
-            Object.entries(groupedByTitle).forEach(([title, issues]: [string, any]) => {
+            Object.entries(groupedByTitle).forEach(([title, issues]: [string, Finding[]]) => {
                 if (currentY > 240) {
                     doc.addPage();
                     drawHeader(doc, `Detailed Findings: ${sev.toUpperCase()} (cont.)`);
@@ -241,7 +280,7 @@ export const exportScanToPDF = (scanData: any) => {
                 doc.text(title, 22, currentY + 6.5);
                 currentY += 15;
 
-                issues.forEach((issue: any) => {
+                issues.forEach((issue: Finding) => {
                     const messageLines = doc.splitTextToSize(issue.message, pageWidth - 45);
                     const neededHeight = 10 + (messageLines.length * 4) + (issue.code ? 35 : 0);
 
@@ -333,7 +372,7 @@ export const exportScanToPDF = (scanData: any) => {
         });
 
         // --- FOOTERS & PAGE NUMBERS ---
-        const pageCount = (doc as any).internal.getNumberOfPages();
+        const pageCount = (doc as unknown as DocWithAutoTable).internal.getNumberOfPages();
         for (let i = 1; i <= pageCount; i++) {
             doc.setPage(i);
 

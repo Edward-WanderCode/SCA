@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
                 const data = JSON.stringify(log);
                 try {
                     controller.enqueue(encoder.encode(`data: ${data}\n\n`));
-                } catch (e) {
+                } catch {
                     // Controller might be closed
                     unsubscribe();
                 }
@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
             const heartbeat = setInterval(() => {
                 try {
                     controller.enqueue(encoder.encode(': heartbeat\n\n'));
-                } catch (e) {
+                } catch {
                     clearInterval(heartbeat);
                     unsubscribe();
                 }

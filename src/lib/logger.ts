@@ -11,7 +11,7 @@ type ScanProgress = {
     progress: number;
     stage: string;
     details?: string;
-    analysis?: any;
+    analysis?: unknown;
 };
 
 class Logger {
@@ -40,7 +40,7 @@ class Logger {
         console.log(`[${entry.level}] ${message}`);
     }
 
-    updateScanProgress(scanId: string, progress: number, stage: string, details?: string, analysis?: any) {
+    updateScanProgress(scanId: string, progress: number, stage: string, details?: string, analysis?: unknown) {
         const update: ScanProgress = { scanId, progress, stage, details, analysis };
         this.activeScans.set(scanId, update);
         console.log(`[PROGRESS] Scan ${scanId}: ${progress}% - ${stage} (${details || ''})`);

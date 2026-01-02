@@ -85,12 +85,13 @@ export async function downloadOpenGrepRules() {
             success: true,
             message: 'Rules updated and cleaned successfully'
         };
-    } catch (error: any) {
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
         console.error('[OpenGrep] Error updating rules:', error);
         return {
             success: false,
             message: 'Failed to update rules',
-            error: error.message
+            error: message
         };
     }
 }
@@ -131,7 +132,7 @@ export async function checkRulesStatus() {
             downloadedAt: stats.mtime.toISOString(),
             ruleCount: ruleCount
         };
-    } catch (e) {
+    } catch {
         return { isDownloaded: true, error: 'Could not determine rule count' };
     }
 }

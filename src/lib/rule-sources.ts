@@ -19,7 +19,7 @@ export const OPENGREP_REGISTRY = {
     },
 
     // Get rules via API
-    async fetchRules(language?: string) {
+    async fetchRules() {
         return {
             config: 'auto',
             command: `opengrep --config=auto`,

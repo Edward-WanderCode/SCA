@@ -9,11 +9,11 @@ export async function GET() {
             success: true,
             ...status
         });
-    } catch (error: any) {
+    } catch (error) {
         return NextResponse.json({
             success: false,
             message: 'Internal server error',
-            error: error.message
+            error: error instanceof Error ? error.message : String(error)
         }, { status: 500 });
     }
 }

@@ -4,13 +4,7 @@ import React, { useState, useEffect, useRef } from "react"
 import { motion } from "framer-motion"
 import { Terminal as TerminalIcon, Cpu, Zap, Search } from "lucide-react"
 
-const logs = [
-    "[SYSTEM] Antigravity SCA Agent v1.5.0 initialized",
-    "[SYSTEM] Connecting to Opengrep & Trivy registry...",
-    "[REGISTRY] Fetched 18,450 updated rules (Opengrep / OWASP / Trivy)",
-    "[INFO] Multi-language analyzer core ready",
-    "[INFO] Monitoring for new scan triggers...",
-]
+
 
 export default function TerminalPage() {
     const [currentLogs, setCurrentLogs] = useState<string[]>([])

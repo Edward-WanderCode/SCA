@@ -5,21 +5,17 @@ import { motion } from "framer-motion"
 import {
     ShieldCheck,
     Search,
-    Filter,
     AlertTriangle,
     Shield,
     Bug,
     Info,
     FileCode,
     Calendar,
-    TrendingUp,
-    TrendingDown,
     ChevronDown,
     ChevronRight,
     Copy,
     ExternalLink,
     Loader2,
-    AlertCircle,
     CheckCircle2,
     Code2,
     Database,
@@ -76,9 +72,9 @@ export default function VulnerabilitiesPage() {
                 // Aggregate all vulnerabilities from all scans
                 const allVulns: Vulnerability[] = []
 
-                data.history.forEach((scan: any) => {
+                data.history.forEach((scan: { id: string; source?: { name: string }; timestamp: string; findings?: Omit<Vulnerability, 'scanId' | 'scanName' | 'timestamp'>[] }) => {
                     if (scan.findings && Array.isArray(scan.findings)) {
-                        scan.findings.forEach((finding: any) => {
+                        scan.findings.forEach((finding) => {
                             allVulns.push({
                                 ...finding,
                                 scanId: scan.id,
@@ -438,7 +434,7 @@ export default function VulnerabilitiesPage() {
                 <div className="flex gap-2">
                     <select
                         value={groupBy}
-                        onChange={(e) => setGroupBy(e.target.value as any)}
+                        onChange={(e) => setGroupBy(e.target.value as typeof groupBy)}
                         className="px-4 py-2 bg-slate-900 border border-white/10 rounded-lg outline-none focus:border-indigo-500 transition-colors text-sm"
                     >
                         <option value="none">No Grouping</option>
@@ -448,7 +444,7 @@ export default function VulnerabilitiesPage() {
                     </select>
                     <select
                         value={sortBy}
-                        onChange={(e) => setSortBy(e.target.value as any)}
+                        onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
                         className="px-4 py-2 bg-slate-900 border border-white/10 rounded-lg outline-none focus:border-indigo-500 transition-colors text-sm"
                     >
                         <option value="severity">Sort by Severity</option>
@@ -486,7 +482,7 @@ export default function VulnerabilitiesPage() {
                         </div>
                         <div className="glass-card p-2 max-h-[70vh] overflow-y-auto">
                             {Object.entries(
-                                sortedVulns.reduce((acc: any, vuln) => {
+                                sortedVulns.reduce((acc: Record<string, Vulnerability[]>, vuln) => {
                                     const key = groupBy === 'severity' ? vuln.severity :
                                         groupBy === 'category' ? vuln.category :
                                             vuln.cwe || 'No CWE'
@@ -499,7 +495,7 @@ export default function VulnerabilitiesPage() {
                                     return severityOrder[a as keyof typeof severityOrder] - severityOrder[b as keyof typeof severityOrder]
                                 }
                                 return a.localeCompare(b)
-                            }).map(([groupName, vulns]: [string, any]) => (
+                            }).map(([groupName, vulns]: [string, Vulnerability[]]) => (
                                 <button
                                     key={groupName}
                                     onClick={() => setSelectedGroupName(groupName)}

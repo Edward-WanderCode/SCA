@@ -36,6 +36,13 @@ export interface ScanResult {
     missingPacks: string[];
 }
 
+export interface ScanAnalysis {
+    files: number;
+    rules: number;
+    languages: { name: string; rules: number; files: number }[];
+    origins: { name: string; rules: number }[];
+}
+
 export const LANGUAGE_MAP: Record<string, { extensions: string[] }> = {
     'JavaScript': { extensions: ['.js', '.jsx', '.mjs', '.cjs'] },
     'TypeScript': { extensions: ['.ts', '.tsx'] },
@@ -116,7 +123,7 @@ async function detectLanguages(targetPath: string): Promise<{ languages: string[
                         const content = await fs.readFile(filePath, 'utf-8');
                         scannedLines += content.split('\n').length;
                     }
-                } catch (readError) {
+                } catch {
                     // Ignore read errors
                 }
             }
@@ -143,7 +150,7 @@ export interface TrivyFinding {
     fix: string;
 }
 
-async function runTrivyScan(targetPath: string, binPath: string = 'trivy'): Promise<any[]> {
+async function runTrivyScan(targetPath: string, binPath: string = 'trivy'): Promise<OpenGrepFinding[]> {
     try {
         console.log(`[Scanner] Running Trivy scan with ${binPath} on: ${targetPath}`);
 
@@ -167,7 +174,7 @@ async function runTrivyScan(targetPath: string, binPath: string = 'trivy'): Prom
         if (!stdout || stdout.trim() === '') return [];
 
         const data = JSON.parse(stdout);
-        const findings: any[] = [];
+        const findings: OpenGrepFinding[] = [];
 
         if (data.Results) {
             for (const result of data.Results) {
@@ -215,8 +222,8 @@ async function runTrivyScan(targetPath: string, binPath: string = 'trivy'): Prom
             }
         }
         return findings;
-    } catch (error: any) {
-        console.warn('[Scanner] Trivy failed or not installed:', error.message);
+    } catch (error) {
+        console.warn('[Scanner] Trivy failed or not installed:', error instanceof Error ? error.message : String(error));
         return [];
     }
 }
@@ -224,9 +231,9 @@ async function runTrivyScan(targetPath: string, binPath: string = 'trivy'): Prom
 export async function runScan(
     targetPath: string,
     options: ScanOptions = {},
-    progressCallback?: (update: { progress: number, stage: string, details?: string, analysis?: any }) => void
+    progressCallback?: (update: { progress: number, stage: string, details?: string, analysis?: ScanAnalysis }) => void
 ): Promise<{
-    findings: any[],
+    findings: OpenGrepFinding[],
     languages: string[],
     warnings: string[],
     scannedLines: number,
@@ -262,7 +269,7 @@ export async function runScan(
                         ruleCount += matches ? matches.length : 1;
                     }
                 }
-            } catch (e) {
+            } catch {
                 ruleCount = lang === 'TypeScript' ? 215 : lang === 'Python' ? 711 : lang === 'JavaScript' ? 358 : 50;
             }
 
@@ -280,7 +287,7 @@ export async function runScan(
             progress: 40,
             stage: 'Analysis Complete',
             details: `Detected ${detectedLanguages.length} languages`,
-            analysis: analysisData as any
+            analysis: analysisData as ScanAnalysis
         });
         // -------------------------------------------------------
 
@@ -323,7 +330,7 @@ export async function runScan(
                 logs += `[Scanner] Using Opengrep: ${p}\n`;
                 opengrepBin = cmd;
                 break;
-            } catch (e) { }
+            } catch { }
         }
 
         let trivyBin = 'trivy';
@@ -334,11 +341,11 @@ export async function runScan(
                 logs += `[Scanner] Using Trivy: ${p}\n`;
                 trivyBin = cmd;
                 break;
-            } catch (e) { }
+            } catch { }
         }
 
         // sast findings
-        let sastFindings: any[] = [];
+        let sastFindings: OpenGrepFinding[] = [];
 
         // Detect local rules for offline mode
         let configArg = 'auto'; // Default to online auto if no local rules
@@ -349,7 +356,7 @@ export async function runScan(
             configArg = `"${localRulesPath}"`;
             isOffline = true;
             logs += `[Scanner] ✓ Using local rules from: ${localRulesPath}\n`;
-        } catch (e) {
+        } catch {
             logs += `[Scanner] ⚠ Local rules not found, using Opengrep Registry (online)\n`;
         }
 
@@ -375,7 +382,7 @@ export async function runScan(
         }
 
         // Build the command
-        let sastCommand = `${opengrepBin} scan --config=${configArg} --exclude .next --exclude node_modules --json --max-target-bytes=${maxTargetBytes} --timeout=${timeout} "${sanitizedTargetPath}"`;
+        const sastCommand = `${opengrepBin} scan --config=${configArg} --exclude .next --exclude node_modules --json --max-target-bytes=${maxTargetBytes} --timeout=${timeout} "${sanitizedTargetPath}"`;
 
         try {
             logs += `[Scanner] Running SAST with: ${sastCommand}\n`;
@@ -407,7 +414,8 @@ export async function runScan(
             }
 
             logs += `[Scanner] ========== OPENGREP OUTPUT END ==========\n`;
-        } catch (ogError: any) {
+        } catch (err) {
+            const ogError = err as { message: string, stderr?: string, stdout?: string };
             logs += `[Opengrep Error] ${ogError.message}\n`;
             if (ogError.stderr) {
                 logs += `[Opengrep Stderr]\n${ogError.stderr}\n`;
@@ -425,7 +433,7 @@ export async function runScan(
                     if (output.errors && output.errors.length > 0) {
                         logs += `[Opengrep Errors from partial] ${JSON.stringify(output.errors, null, 2)}\n`;
                     }
-                } catch (e) {
+                } catch {
                     logs += `[Opengrep Stdout Parse Error] Could not parse partial stdout\n`;
                 }
             }
@@ -458,9 +466,10 @@ export async function runScan(
             scannedFiles,
             logs
         };
-    } catch (error: any) {
-        logs += `[Scanner Critical Error] ${error.message}\n`;
-        console.error('[Scanner] Execution error:', error.message);
+    } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        logs += `[Scanner Critical Error] ${errorMsg}\n`;
+        console.error('[Scanner] Execution error:', errorMsg);
         return {
             findings: [],
             languages: [],
@@ -482,7 +491,7 @@ export async function createTemporaryRepo(url: string): Promise<string> {
         console.log(`[Scanner] Cloning ${url} to ${tempPath}`);
         await execAsync(`git clone --depth 1 "${url}" "${tempPath}"`);
         return tempPath;
-    } catch (error) {
+    } catch {
         await fs.rm(tempPath, { recursive: true, force: true });
         throw new Error('Failed to clone repository');
     }
@@ -492,14 +501,14 @@ export async function cleanupTemp(p: string) {
     try {
         await fs.rm(p, { recursive: true, force: true });
         console.log(`[Scanner] Cleaned up ${p}`);
-    } catch (e) {
+    } catch {
         console.warn('[Scanner] Failed to cleanup path:', p);
     }
 }
 
 // Helper: Save scan results to history
 // Helper: Save scan results to history (Upsert)
-export async function saveScanResult(scan: any) {
+export async function saveScanResult(scan: ScanResult) {
     const dataDir = path.join(process.cwd(), '.sca-data');
     const historyFile = path.join(dataDir, 'scans.json');
 
@@ -509,11 +518,11 @@ export async function saveScanResult(scan: any) {
         try {
             const content = await fs.readFile(historyFile, 'utf-8');
             history = JSON.parse(content);
-        } catch (e) {
+        } catch {
             // New history file
         }
 
-        const existingIndex = history.findIndex((s: any) => s.id === scan.id);
+        const existingIndex = history.findIndex((s: ScanResult) => s.id === scan.id);
         if (existingIndex >= 0) {
             history[existingIndex] = scan;
         } else {

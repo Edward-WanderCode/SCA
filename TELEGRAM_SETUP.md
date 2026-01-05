@@ -1,13 +1,18 @@
 # Telegram Integration Guide
 
 ## Overview
-The SCA Platform now supports automatic Telegram notifications. After each scan completes, the system can automatically send a PDF report to your Telegram chat group.
+The SCA Platform now supports **bidirectional Telegram integration**:
+1. **Receive notifications** - Automatic PDF reports after scan completion
+2. **Send scan requests** - Trigger scans directly from Telegram using bot commands
 
 ## Features
 - 🔔 Automatic notifications after scan completion
 - 📄 PDF reports sent directly to Telegram
 - 📊 Scan statistics in message caption
 - ⚙️ Easy configuration through Settings page
+- 🤖 **NEW:** Trigger scans from Telegram bot commands
+- 💬 **NEW:** Check scan status via Telegram
+- 🚀 **NEW:** Remote security scanning from any device
 
 ## Setup Instructions
 
@@ -105,3 +110,164 @@ You can also manually send a scan report to Telegram:
 ---
 
 **Need Help?** Check the [Telegram Bot API Documentation](https://core.telegram.org/bots/api) for more information.
+
+---
+
+## 🤖 Using Bot Commands (NEW)
+
+You can now trigger security scans directly from Telegram without opening the SCA Platform web interface!
+
+### Setting Up Webhook
+
+To enable bot commands, you need to set up a webhook so Telegram can send commands to your SCA Platform:
+
+1. **Deploy your SCA Platform** to a server with a public URL (e.g., `https://your-domain.com`)
+2. **Set the webhook** by sending this request (replace with your bot token and URL):
+
+```bash
+curl -X POST "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://your-domain.com/api/telegram/webhook"}'
+```
+
+3. **Verify webhook** is set:
+
+```bash
+curl "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getWebhookInfo"
+```
+
+### Local Development (Optional)
+
+For local testing, you can use **ngrok** to expose your local server:
+
+1. Install ngrok: https://ngrok.com/download
+2. Run your SCA Platform: `npm run dev`
+3. In another terminal, run: `ngrok http 3000`
+4. Copy the HTTPS URL (e.g., `https://abc123.ngrok.io`)
+5. Set webhook to: `https://abc123.ngrok.io/api/telegram/webhook`
+
+### Available Commands
+
+Once the webhook is configured, you can use these commands in Telegram:
+
+#### `/scan <repo-url>`
+Start a security scan on a Git repository.
+
+**Example:**
+```
+/scan https://github.com/username/my-project.git
+```
+
+**Response:**
+- Immediately confirms the scan has started
+- Provides a scan ID for tracking
+- Sends a PDF report when the scan completes
+
+**Supported Git URLs:**
+- GitHub: `https://github.com/user/repo.git`
+- GitLab: `https://gitlab.com/user/repo.git`
+- Bitbucket: `https://bitbucket.org/user/repo.git`
+- Any Git URL with `http://`, `https://`, or `git://` protocol
+
+---
+
+#### `/status <scan-id>`
+Check the status of a running or completed scan.
+
+**Example:**
+```
+/status scan-abc123
+```
+
+**Response:**
+- Scan status (Running, Completed, Failed)
+- Project name and scan timestamp
+- If completed, shows finding statistics
+
+---
+
+#### `/help`
+Display help message with all available commands.
+
+**Example:**
+```
+/help
+```
+
+---
+
+### Usage Examples
+
+**Scenario 1: Quick Scan from Mobile**
+```
+You: /scan https://github.com/mycompany/api-server.git
+Bot: 🚀 Starting security scan...
+     📁 Repository: api-server
+     ⏳ This may take a few minutes...
+
+Bot: ✅ Scan started successfully!
+     🆔 Scan ID: scan-x7k9m2
+
+[After scan completes]
+Bot: 🔒 Security Scan Report
+     📁 Project: api-server
+     📊 Total Findings: 12
+     ⚠️ Critical: 2
+     🔴 High: 3
+     🟡 Medium: 7
+     [PDF Report Attached]
+```
+
+**Scenario 2: Check Scan Progress**
+```
+You: /status scan-x7k9m2
+Bot: 🔄 Scan Status
+     🆔 ID: scan-x7k9m2
+     📁 Project: api-server
+     📅 Started: 1/6/2026, 2:30 PM
+     📊 Status: Running
+     ⏳ Scan is still in progress...
+```
+
+---
+
+### Tips for Bot Commands
+
+1. **Background Scanning**: Scans triggered from Telegram run in the background. You can close Telegram and the scan will continue.
+
+2. **Notifications**: You'll automatically receive the PDF report in Telegram when the scan completes.
+
+3. **Multiple Scans**: You can trigger multiple scans at once. Each gets a unique scan ID.
+
+4. **Private vs Group Chats**: 
+   - Works in both private chats with the bot and group chats
+   - In groups, reports are sent to the group
+   - Use forum topics to organize reports by project
+
+5. **Security**: Only users who have the bot token can trigger scans. Keep your token secure!
+
+---
+
+### Troubleshooting Bot Commands
+
+#### Webhook Not Working
+- Verify the webhook URL is correct using `getWebhookInfo`
+- Ensure your server has a valid SSL certificate (HTTPS required)
+- Check server logs for webhook errors
+
+#### Bot Doesn't Respond to Commands
+- Make sure webhook is properly set
+- Verify the bot token in Settings is correct
+- Check that bot has not been blocked
+- Ensure your server is accessible from the internet
+
+#### Scan Fails to Start
+- Verify the Git repository URL is accessible
+- Check that the repository is public or your server has access credentials
+- Review server logs for detailed error messages
+
+#### "Telegram notifications are disabled" Error
+- Go to Settings page and enable Telegram notifications
+- Save the configuration
+- Try the command again
+

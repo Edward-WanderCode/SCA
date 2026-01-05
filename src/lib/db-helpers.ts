@@ -205,3 +205,45 @@ export async function getScanById(scanId: string) {
         findings: scan.findings,
     };
 }
+
+/**
+ * Get recent scans, optionally filtered by status
+ */
+export async function getRecentScans(limit: number = 10, status?: string) {
+    const where = status ? { status } : {};
+
+    const scans = await prisma.scan.findMany({
+        where,
+        orderBy: {
+            timestamp: 'desc',
+        },
+        take: limit,
+        select: {
+            id: true,
+            timestamp: true,
+            status: true,
+            sourceName: true,
+            sourceType: true,
+            criticalCount: true,
+            highCount: true,
+            mediumCount: true,
+            lowCount: true,
+            infoCount: true,
+        },
+    });
+
+    return scans.map(scan => ({
+        id: scan.id,
+        timestamp: scan.timestamp.toISOString(),
+        status: scan.status,
+        sourceName: scan.sourceName,
+        sourceType: scan.sourceType,
+        findings: {
+            critical: scan.criticalCount,
+            high: scan.highCount,
+            medium: scan.mediumCount,
+            low: scan.lowCount,
+            info: scan.infoCount,
+        },
+    }));
+}

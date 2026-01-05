@@ -42,7 +42,8 @@ export async function sendPdfToTelegram(
     pdfBuffer: Buffer,
     fileName: string,
     caption: string,
-    messageThreadId?: number
+    messageThreadId?: number,
+    chatIdOverride?: string | number
 ): Promise<{ success: boolean; error?: string }> {
     try {
         const config = await loadTelegramConfig();
@@ -51,7 +52,7 @@ export async function sendPdfToTelegram(
             return { success: false, error: 'Telegram notifications are disabled' };
         }
 
-        if (!config.botToken || !config.chatId) {
+        if (!config.botToken || (!config.chatId && !chatIdOverride)) {
             return { success: false, error: 'Telegram configuration is incomplete' };
         }
 
@@ -62,7 +63,7 @@ export async function sendPdfToTelegram(
         const uint8Array = new Uint8Array(pdfBuffer);
         const blob = new Blob([uint8Array], { type: 'application/pdf' });
         formData.append('document', blob, fileName);
-        formData.append('chat_id', config.chatId);
+        formData.append('chat_id', (chatIdOverride || config.chatId).toString());
         formData.append('caption', caption);
         formData.append('parse_mode', 'HTML');
         if (messageThreadId) {

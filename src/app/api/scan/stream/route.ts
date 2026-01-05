@@ -2,14 +2,15 @@ import { NextResponse } from 'next/server'
 import { saveScanToDatabase } from '@/lib/db-helpers'
 import { spawn } from 'child_process'
 import path from 'path'
+import os from 'os'
 
 export const maxDuration = 300;
 
 export async function POST(request: Request) {
     try {
         console.log('[STREAM] Request received, parsing body...')
-        const { url, method, folderPath, ruleSet = 'Community (Standard)', compareWithId } = await request.json()
-        console.log(`[STREAM] Method: ${method}, URL: ${url}, Folder: ${folderPath}`)
+        const { url, method, folderPath, ruleSet = 'Community (Standard)', compareWithId, metadata } = await request.json()
+        console.log(`[STREAM] Method: ${method}, URL: ${url}, Folder: ${folderPath}, Metadata:`, metadata)
 
         // Generate scanId IMMEDIATELY
         const scanId = `scan-${Math.random().toString(36).substring(7)}`
@@ -58,6 +59,7 @@ export async function POST(request: Request) {
             folderPath,
             ruleSet,
             compareWithId,
+            metadata,
         }
 
         // Spawn background worker process
@@ -68,24 +70,25 @@ export async function POST(request: Request) {
 
         // Use tsx to run TypeScript directly
         const fs = await import('fs');
-        const logFile = path.join(process.cwd(), 'logs', `worker-${scanId}.log`);
-        const errFile = path.join(process.cwd(), 'logs', `worker-${scanId}.err`);
+        // Use system temp directory instead of creating a /logs folder in the project
+        const tempDir = os.tmpdir();
+        const logFile = path.join(tempDir, `worker-${scanId}.log`);
+        const errFile = path.join(tempDir, `worker-${scanId}.err`);
 
-        // Ensure logs directory exists
-        await fs.promises.mkdir(path.join(process.cwd(), 'logs'), { recursive: true });
+        // No need to ensure logs directory exists as we use system temp
 
         // Windows: Use START command to create truly independent process
         const isWindows = process.platform === 'win32';
 
         let worker;
         if (isWindows) {
-            // Create batch script for proper redirection
+            // Create batch script for proper redirection in system temp
             const batchContent = `@echo off\r\nnpx tsx "${workerScript}" ${scanId} "${configJson.replace(/"/g, '\\"')}" > "${logFile}" 2> "${errFile}"`;
-            const batchFile = path.join(process.cwd(), 'logs', `worker-${scanId}.bat`);
+            const batchFile = path.join(tempDir, `worker-${scanId}.bat`);
             await fs.promises.writeFile(batchFile, batchContent);
 
-            // START /B = run in background without new window
-            worker = spawn('cmd', ['/c', 'start', '/B', batchFile], {
+            // START /B /MIN = run in background, minimized, without new window
+            worker = spawn('cmd', ['/c', 'start', '/B', '/MIN', batchFile], {
                 stdio: 'ignore',
                 cwd: process.cwd(),
                 detached: true,

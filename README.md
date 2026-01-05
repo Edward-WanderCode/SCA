@@ -14,7 +14,9 @@ SCA (Security Code Analysis) là nền tảng quản lý quét bảo mật mã n
 *   **📊 Báo Cáo & Trực Quan Hóa**:
     *   Biểu đồ thống kê lỗ hổng theo mức độ nghiêm trọng.
     *   Xuất báo cáo **PDF** chuyên nghiệp cho các đợt kiểm toán (Audit).
-*   **📱 Telegram Notifications**: Tự động gửi báo cáo PDF lên Telegram Chat Group sau khi hoàn thành scan.
+*   **📱 Telegram Integration**: 
+    *   Tự động gửi báo cáo PDF lên Telegram sau khi scan hoàn thành.
+    *   **[MỚI]** Trigger scans từ Telegram bot commands (`/scan`, `/status`, `/help`).
 *   **🖥️ Real-time Terminal**: Theo dõi tiến trình quét và log chi tiết trực tiếp trên trình duyệt.
 *   **🛡️ Quản Lý Rules**: Tải xuống và cập nhật các bộ luật bảo mật (Security Rules) từ cộng đồng và các tổ chức uy tín (OWASP, v.v.).
 *   **🔐 Authentication**: Tích hợp sẵn hệ thống xác thực người dùng (NextAuth.js).
@@ -126,9 +128,48 @@ e:\Code\SCA\
 
 ---
 
-## � Telegram Integration
+## 📱 Telegram Integration
 
-Để thiết lập thông báo Telegram tự động, xem hướng dẫn chi tiết tại: [TELEGRAM_SETUP.md](./TELEGRAM_SETUP.md)
+SCA Platform hỗ trợ tích hợp Telegram với 2 tính năng chính:
+
+### 1. 🔔 Nhận Thông Báo Tự Động
+- Nhận báo cáo PDF sau khi scan hoàn thành
+- Thống kê findings và severity levels
+- Tổ chức báo cáo theo topics (cho forum groups)
+
+### 2. 🤖 Gửi Lệnh Scan từ Bot (MỚI!)
+Bây giờ bạn có thể **trigger scans từ Telegram** mà không cần mở web:
+- `/scan <repo-url>` - Bắt đầu quét một Git repository
+- `/status <scan-id>` - Kiểm tra trạng thái scan
+- `/help` - Xem hướng dẫn
+
+**2 Chế Độ Hoạt Động:**
+
+#### 🌐 Webhook Mode (Cho servers công khai)
+- Telegram gọi trực tiếp đến server
+- Yêu cầu HTTPS và accessible từ internet
+- Response time nhanh (instant)
+- Xem: [TELEGRAM_SETUP.md](./TELEGRAM_SETUP.md)
+
+#### 🔒 Polling Mode (Cho private networks) ⭐ **RECOMMENDED cho Tailscale**
+- Bot tự poll Telegram API
+- **KHÔNG CẦN expose ra internet**
+- Hoàn hảo cho Tailscale/VPN
+- An toàn hơn, dễ setup hơn
+- Xem: [TELEGRAM_POLLING_GUIDE.md](./TELEGRAM_POLLING_GUIDE.md)
+
+**Quick Start (Polling Mode):**
+```bash
+# Setup bot token trong Settings, sau đó:
+node scripts/start-telegram-polling.js
+```
+
+**Lợi ích:**
+- ✨ Scan từ bất kỳ đâu (mobile, desktop)
+- ⚡ Không cần mở web interface
+- 📊 Nhận kết quả ngay trên Telegram
+- 👥 Team collaboration trong group chats
+- 🔒 **An toàn cho private networks**
 
 ---
 

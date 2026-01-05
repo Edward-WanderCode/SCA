@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { runScan, createTemporaryRepo, cleanupTemp } from '@/lib/scanner'
+import { saveScanToDatabase, getScanById } from '@/lib/db-helpers'
 
 export const maxDuration = 300; // 5 minutes for long scans
 
@@ -37,7 +38,6 @@ export async function POST(request: Request) {
             }
         }
 
-        const { saveScanResult } = await import('@/lib/scanner')
         const scanId = `scan-${Math.random().toString(36).substring(7)}`;
         const timestamp = new Date().toISOString();
         const compareWithId = body.compareWithId || null;
@@ -63,7 +63,7 @@ export async function POST(request: Request) {
             missingPacks: []
         };
 
-        await saveScanResult(runningScan);
+        await saveScanToDatabase(runningScan as any);
 
         console.log(`Starting Opengrep + Trivy scan on: ${targetPath}`)
         const startTime = Date.now();
@@ -72,11 +72,8 @@ export async function POST(request: Request) {
 
         let previousFindings: any[] = []
         if (compareWithId) {
-            const historyFile = (await import('path')).join(process.cwd(), '.sca-data', 'scans.json')
             try {
-                const historyContent = await (await import('fs/promises')).readFile(historyFile, 'utf-8')
-                const history = JSON.parse(historyContent)
-                const prevScan = history.find((s: any) => s.id === compareWithId)
+                const prevScan = await getScanById(compareWithId)
                 if (prevScan) previousFindings = prevScan.findings || []
             } catch (e) {
                 console.warn('Could not find previous scan for comparison')
@@ -153,13 +150,13 @@ export async function POST(request: Request) {
                     existing: currentFindings.filter(f => !f.isNew).length
                 } : null
             },
-            language: languages.join(', ') || 'Auto-detected',
+            languages: languages,
             findings: currentFindings,
             logs: logs,
             fileTree: fileTree
         }
 
-        await saveScanResult(scanResult)
+        await saveScanToDatabase(scanResult as any)
 
         // Auto-send to Telegram if enabled
         try {

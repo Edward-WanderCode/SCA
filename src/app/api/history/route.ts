@@ -11,7 +11,7 @@ export async function GET() {
             const history = JSON.parse(content);
             return NextResponse.json({ success: true, history });
         } catch (e) {
-            // File doesn't exist yet
+            // File doesn't exist or corrupted
             return NextResponse.json({ success: true, history: [] });
         }
     } catch (error: any) {

@@ -24,6 +24,7 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
+import { copyToClipboard } from '@/lib/clipboard'
 
 interface Vulnerability {
     id: string
@@ -227,13 +228,11 @@ export default function VulnerabilitiesPage() {
                                 <div className="flex items-center justify-between mb-2">
                                     <h4 className="text-sm font-semibold">Vulnerable Code</h4>
                                     <button
-                                        onClick={(e) => {
+                                        onClick={async (e) => {
                                             e.stopPropagation()
-                                            if (navigator.clipboard && navigator.clipboard.writeText) {
-                                                navigator.clipboard.writeText(vuln.code)
-                                                    .catch(err => console.error('Failed to copy code:', err));
-                                            } else {
-                                                alert('Clipboard API not available');
+                                            const success = await copyToClipboard(vuln.code);
+                                            if (!success) {
+                                                alert('Failed to copy to clipboard');
                                             }
                                         }}
                                         className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1"
@@ -254,13 +253,11 @@ export default function VulnerabilitiesPage() {
                                     <div className="flex items-center justify-between mb-2">
                                         <h4 className="text-sm font-semibold text-emerald-500">Suggested Fix</h4>
                                         <button
-                                            onClick={(e) => {
+                                            onClick={async (e) => {
                                                 e.stopPropagation()
-                                                if (navigator.clipboard && navigator.clipboard.writeText) {
-                                                    navigator.clipboard.writeText(vuln.fix!)
-                                                        .catch(err => console.error('Failed to copy fix:', err));
-                                                } else {
-                                                    alert('Clipboard API not available');
+                                                const success = await copyToClipboard(vuln.fix!);
+                                                if (!success) {
+                                                    alert('Failed to copy to clipboard');
                                                 }
                                             }}
                                             className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1"

@@ -11,55 +11,85 @@ export async function POST(request: Request) {
         async start(controller) {
             let scanId = '';
             try {
+                console.log('[STREAM] Request received, parsing body...')
                 const { url, method, folderPath, ruleSet = 'Community (Standard)' } = await request.json()
+                console.log(`[STREAM] Method: ${method}, URL: ${url}, Folder: ${folderPath}`)
 
                 let targetPath = process.cwd()
                 let isTemp = false
 
-                // Send initial progress
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                // Generate scanId IMMEDIATELY so progress can be tracked
+                scanId = `scan-${Math.random().toString(36).substring(7)}`
+                console.log(`[STREAM] Generated scanId: ${scanId}`)
+
+                // Send initial progress with scanId
+                const initialUpdate = {
+                    scanId,
                     progress: 5,
                     stage: 'Initializing scan...',
                     details: 'Setting up environment'
-                })}\n\n`))
+                }
+                logger.updateScanProgress(scanId, 5, 'Initializing scan...', 'Setting up environment')
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify(initialUpdate)}\n\n`))
 
                 if (method === 'git' && url) {
+                    console.log(`[STREAM] Starting Git clone for: ${url}`)
+                    logger.updateScanProgress(scanId, 10, 'Cloning repository...', url)
                     controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                        scanId,
                         progress: 10,
                         stage: 'Cloning repository...',
                         details: url
                     })}\n\n`))
 
-                    targetPath = await createTemporaryRepo(url)
-                    isTemp = true
+                    try {
+                        targetPath = await createTemporaryRepo(url)
+                        isTemp = true
+                        console.log(`[STREAM] Clone successful: ${targetPath}`)
+                    } catch (cloneError: any) {
+                        console.error(`[STREAM] Clone failed:`, cloneError)
+                        throw new Error(`Failed to clone repository: ${cloneError.message}`)
+                    }
 
+                    logger.updateScanProgress(scanId, 20, 'Repository cloned', 'Starting analysis')
                     controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                        scanId,
                         progress: 20,
                         stage: 'Repository cloned',
                         details: 'Starting analysis'
                     })}\n\n`))
                 } else if (method === 'folder' && folderPath) {
+                    console.log(`[STREAM] Validating folder: ${folderPath}`)
                     const fs = await import('fs/promises')
                     const path = await import('path')
 
                     try {
                         const stats = await fs.stat(folderPath)
                         if (!stats.isDirectory()) {
+                            console.error(`[STREAM] Path is not a directory: ${folderPath}`)
+                            logger.updateScanProgress(scanId, 0, 'Error', 'Invalid path: Not a directory')
                             controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                                scanId,
                                 error: 'Invalid path: Not a directory'
                             })}\n\n`))
                             controller.close()
                             return
                         }
                         targetPath = path.resolve(folderPath)
+                        console.log(`[STREAM] Folder validated: ${targetPath}`)
 
+                        logger.updateScanProgress(scanId, 15, 'Scanning local folder', targetPath)
                         controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                            scanId,
                             progress: 15,
                             stage: 'Scanning local folder',
                             details: targetPath
                         })}\n\n`))
                     } catch (err: any) {
+                        console.error(`[STREAM] Folder access error:`, err)
+                        logger.updateScanProgress(scanId, 0, 'Error', `Cannot access folder: ${err.message}`)
                         controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                            scanId,
                             error: `Cannot access folder: ${err.message}`
                         })}\n\n`))
                         controller.close()
@@ -68,10 +98,12 @@ export async function POST(request: Request) {
                 }
 
                 const { saveScanResult } = await import('@/lib/scanner')
-                scanId = `scan-${Math.random().toString(36).substring(7)}`
                 const timestamp = new Date().toISOString()
 
+                console.log(`[STREAM] Preparing to detect languages for scanId: ${scanId}`)
+                logger.updateScanProgress(scanId, 25, 'Detecting languages...', 'Analyzing file types')
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                    scanId,
                     progress: 25,
                     stage: 'Detecting languages...',
                     details: 'Analyzing file types'
@@ -93,7 +125,9 @@ export async function POST(request: Request) {
                         duration: 0,
                         findings: { critical: 0, high: 0, medium: 0, low: 0, info: 0 }
                     },
-                    findings: []
+                    findings: [],
+                    languages: [],
+                    missingPacks: []
                 }
 
                 await saveScanResult(runningScan)
@@ -110,12 +144,18 @@ export async function POST(request: Request) {
                 const startTime = Date.now()
 
                 // Create progress callback
-                const progressCallback = (update: { progress: number, stage: string, details?: string, analysis?: any }) => {
+                const progressCallback = async (update: { progress: number, stage: string, details?: string, analysis?: any, scannedFiles?: number, scannedLines?: number }) => {
+                    const updateWithId = { ...update, scanId }
                     logger.updateScanProgress(scanId, update.progress, update.stage, update.details, update.analysis)
-                    controller.enqueue(encoder.encode(`data: ${JSON.stringify(update)}\n\n`))
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify(updateWithId)}\n\n`))
+
+                    // NOTE: Intermediate file writes disabled to prevent race condition corruption
+                    // Analysis data persistence will happen when scan completes (line ~274)
+                    // This prevents multiple concurrent writes from corrupting the JSON file
                 }
 
-                const { findings, languages, scannedLines, scannedFiles, logs } = await runScan(
+                console.log(`[STREAM] Starting runScan for scanId: ${scanId}`)
+                const { findings, languages, scannedLines, scannedFiles, logs, sastCount, trivyCount } = await runScan(
                     targetPath,
                     { ruleSet },
                     progressCallback
@@ -123,8 +163,10 @@ export async function POST(request: Request) {
 
                 const duration = Math.round((Date.now() - startTime) / 1000)
 
+                console.log(`[STREAM] runScan completed for scanId: ${scanId}, found ${findings.length} findings`)
                 logger.updateScanProgress(scanId, 90, 'Processing results...', `Found ${findings.length} findings`)
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                    scanId,
                     progress: 90,
                     stage: 'Processing results...',
                     details: `Found ${findings.length} findings`,
@@ -135,43 +177,53 @@ export async function POST(request: Request) {
                 const fs = await import('fs/promises')
                 const path = await import('path')
 
-                const currentFindings = await Promise.all(findings.map(async (f: any) => {
-                    const fingerprint = `${f.check_id}|${f.path}|${f.extra.message.substring(0, 50)}`
+                const currentFindingsPromises = findings.map(async (f: any) => {
+                    try {
+                        const fingerprint = `${f.check_id}|${f.path}|${(f.extra?.message || '').substring(0, 50)}`
 
-                    let code = (f.extra.rendered_lines || f.extra.lines || 'No code snippet available').trim()
-                    if (code === 'requires login' || code === 'required login') {
-                        try {
-                            const fullPath = path.isAbsolute(f.path) ? f.path : path.join(targetPath, f.path)
-                            const fileContent = await fs.readFile(fullPath, 'utf8')
-                            const lines = fileContent.split('\n')
-                            const startLine = Math.max(0, f.start.line - 1)
-                            const endLine = Math.min(lines.length, f.end.line)
-                            code = lines.slice(startLine, endLine).join('\n').trim()
-                        } catch (err) { }
+                        let code = (f.extra?.rendered_lines || f.extra?.lines || 'No code snippet available').toString().trim()
+                        if (code === 'requires login' || code === 'required login') {
+                            try {
+                                const fullPath = path.isAbsolute(f.path) ? f.path : path.join(targetPath, f.path)
+                                const fileContent = await fs.readFile(fullPath, 'utf8')
+                                const lines = fileContent.split('\n')
+                                const startLine = Math.max(0, (f.start?.line || 1) - 1)
+                                const endLine = Math.min(lines.length, (f.end?.line || f.start?.line || 1))
+                                code = lines.slice(startLine, endLine).join('\n').trim()
+                            } catch (err) { }
+                        }
+
+                        const rawSev = (f.extra?.severity || 'LOW').toUpperCase()
+                        let mappedSev = 'low'
+                        if (['CRITICAL', 'FATAL'].includes(rawSev)) mappedSev = 'critical'
+                        else if (['ERROR', 'HIGH'].includes(rawSev)) mappedSev = 'high'
+                        else if (['WARNING', 'MEDIUM'].includes(rawSev)) mappedSev = 'medium'
+                        else if (['LOW'].includes(rawSev)) mappedSev = 'low'
+                        else if (['INFO'].includes(rawSev)) mappedSev = 'info'
+
+                        return {
+                            id: `scan-${Math.random().toString(36).substring(7)}`,
+                            fingerprint,
+                            isNew: false,
+                            title: f.check_id?.split('.').pop() || 'Issue',
+                            severity: mappedSev,
+                            file: f.path || 'unknown',
+                            line: f.start?.line || 0,
+                            column: f.start?.col || 0,
+                            message: f.extra?.message || 'No message provided',
+                            code: code || 'No code snippet available',
+                            category: f.extra?.metadata?.category || 'Security',
+                            cwe: f.extra?.metadata?.cwe?.[0],
+                            owasp: f.extra?.metadata?.owasp?.[0],
+                            fix: f.extra?.remediation || 'Please review the security best practices.'
+                        }
+                    } catch (err) {
+                        console.error(`[STREAM] Error processing finding for ${f.path}:`, err)
+                        return null
                     }
+                })
 
-                    const rawSev = f.extra.severity.toUpperCase()
-                    let mappedSev = 'low'
-                    if (['ERROR', 'CRITICAL', 'FATAL'].includes(rawSev)) mappedSev = 'critical'
-                    else if (['WARNING', 'HIGH', 'MEDIUM'].includes(rawSev)) mappedSev = 'medium'
-
-                    return {
-                        id: `og-${Math.random().toString(36).substring(7)}`,
-                        fingerprint,
-                        isNew: false,
-                        title: f.check_id.split('.').pop(),
-                        severity: mappedSev,
-                        file: f.path,
-                        line: f.start.line,
-                        column: f.start.col,
-                        message: f.extra.message,
-                        code: code || 'No code snippet available',
-                        category: f.extra.metadata?.category || 'Security',
-                        cwe: f.extra.metadata?.cwe?.[0],
-                        owasp: f.extra.metadata?.owasp?.[0],
-                        fix: f.extra.remediation || 'Please review the security best practices.'
-                    }
-                }))
+                const currentFindings = (await Promise.all(currentFindingsPromises)).filter(f => f !== null)
 
                 const scanResult = {
                     ...runningScan,
@@ -180,15 +232,17 @@ export async function POST(request: Request) {
                         filesScanned: scannedFiles,
                         linesScanned: scannedLines,
                         duration: duration,
+                        sastCount: sastCount,
+                        trivyCount: trivyCount,
                         findings: {
                             critical: currentFindings.filter((f: any) => f.severity === 'critical').length,
-                            high: 0,
+                            high: currentFindings.filter((f: any) => f.severity === 'high').length,
                             medium: currentFindings.filter((f: any) => f.severity === 'medium').length,
                             low: currentFindings.filter((f: any) => f.severity === 'low').length,
-                            info: 0
+                            info: currentFindings.filter((f: any) => f.severity === 'info').length
                         }
                     },
-                    language: languages.join(', ') || 'Auto-detected',
+                    languages: languages,
                     findings: currentFindings,
                     logs: logs
                 }

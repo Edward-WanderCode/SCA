@@ -173,6 +173,13 @@ export default function HistoryPage() {
 
     React.useEffect(() => {
         fetchHistory()
+
+        // Auto-refresh every 5 seconds to show running scans
+        const interval = setInterval(() => {
+            fetchHistory()
+        }, 5000)
+
+        return () => clearInterval(interval)
     }, [])
 
     const fetchHistory = async () => {

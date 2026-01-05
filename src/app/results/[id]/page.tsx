@@ -26,6 +26,7 @@ import {
     Terminal,
     X
 } from "lucide-react"
+import { copyToClipboard } from '@/lib/clipboard'
 import Link from "next/link"
 import { cn } from "@/lib/utils"
 import { useParams } from "next/navigation"
@@ -187,6 +188,10 @@ export default function ResultsDetailPage() {
 
                 if (scan) {
                     setScanData(scan)
+                    // Restore analysis data from database if available
+                    if (scan.analysis) {
+                        setAnalysisData(scan.analysis)
+                    }
                     if (scan.status === 'running') {
                         setIsScanning(true)
                     } else {
@@ -373,12 +378,10 @@ export default function ResultsDetailPage() {
                                 <div className="flex items-center justify-between mb-2">
                                     <h4 className="text-sm font-semibold">Vulnerable Code</h4>
                                     <button
-                                        onClick={() => {
-                                            if (navigator.clipboard && navigator.clipboard.writeText) {
-                                                navigator.clipboard.writeText(finding.code)
-                                                    .catch(err => console.error('Failed to copy code:', err));
-                                            } else {
-                                                alert('Clipboard API not available');
+                                        onClick={async () => {
+                                            const success = await copyToClipboard(finding.code);
+                                            if (!success) {
+                                                alert('Failed to copy to clipboard');
                                             }
                                         }}
                                         className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1"
@@ -400,12 +403,10 @@ export default function ResultsDetailPage() {
                                     <div className="flex items-center justify-between mb-2">
                                         <h4 className="text-sm font-semibold text-emerald-500">Suggested Fix</h4>
                                         <button
-                                            onClick={() => {
-                                                if (navigator.clipboard && navigator.clipboard.writeText) {
-                                                    navigator.clipboard.writeText(finding.fix)
-                                                        .catch(err => console.error('Failed to copy fix:', err));
-                                                } else {
-                                                    alert('Clipboard API not available');
+                                            onClick={async () => {
+                                                const success = await copyToClipboard(finding.fix);
+                                                if (!success) {
+                                                    alert('Failed to copy to clipboard');
                                                 }
                                             }}
                                             className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1"
@@ -469,7 +470,10 @@ export default function ResultsDetailPage() {
                             <div className="text-3xl font-mono font-bold text-indigo-500">
                                 {Math.round(progress)}%
                             </div>
-                            <div className="text-xs text-muted-foreground uppercase tracking-widest">Progress</div>
+                            <div className="text-xs text-muted-foreground uppercase tracking-widest flex items-center justify-end gap-1.5">
+                                <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse"></div>
+                                <span>Progress</span>
+                            </div>
                         </div>
                     </div>
 
@@ -526,10 +530,17 @@ export default function ResultsDetailPage() {
                         </div>
                         <div className="w-full bg-white/5 h-1.5 rounded-full overflow-hidden">
                             <motion.div
-                                className="h-full bg-indigo-600"
+                                className="h-full bg-gradient-to-r from-indigo-600 via-indigo-500 to-indigo-600 relative"
+                                style={{ backgroundSize: '200% 100%' }}
                                 initial={{ width: 0 }}
-                                animate={{ width: `${progress}%` }}
-                                transition={{ duration: 0.5 }}
+                                animate={{
+                                    width: `${progress}%`,
+                                    backgroundPosition: ['0% 0%', '100% 0%']
+                                }}
+                                transition={{
+                                    width: { duration: 0.8, ease: "easeInOut" },
+                                    backgroundPosition: { duration: 2, repeat: Infinity, ease: "linear" }
+                                }}
                             />
                         </div>
                     </div>
@@ -624,13 +635,12 @@ export default function ResultsDetailPage() {
                             </div>
                             <div className="flex items-center gap-2">
                                 <button
-                                    onClick={() => {
-                                        if (navigator.clipboard && navigator.clipboard.writeText) {
-                                            navigator.clipboard.writeText(scanData?.logs || 'No logs available')
-                                                .then(() => console.log('Logs copied to clipboard'))
-                                                .catch(err => console.error('Failed to copy logs:', err));
+                                    onClick={async () => {
+                                        const success = await copyToClipboard(scanData?.logs || 'No logs available');
+                                        if (success) {
+                                            console.log('Logs copied to clipboard');
                                         } else {
-                                            alert('Clipboard API not available');
+                                            alert('Failed to copy to clipboard');
                                         }
                                     }}
                                     className="px-3 py-1.5 text-xs bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors flex items-center gap-1.5"
@@ -714,6 +724,53 @@ export default function ResultsDetailPage() {
 
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
                 <div className="lg:col-span-3 space-y-8">
+
+                    {/* Scan Tools Breakdown */}
+                    <div className="glass-card p-6 border-l-4 border-l-indigo-500">
+                        <h4 className="text-base font-bold flex items-center gap-2 mb-4">
+                            <Shield className="w-5 h-5 text-indigo-400" />
+                            Findings by Scanning Tool
+                        </h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {/* OpenGrep SAST */}
+                            <div className="bg-gradient-to-br from-purple-500/10 to-indigo-500/10 border border-purple-500/20 rounded-lg p-4">
+                                <div className="flex items-center justify-between mb-3">
+                                    <div className="flex items-center gap-2">
+                                        <Code2 className="w-5 h-5 text-purple-400" />
+                                        <h5 className="font-bold text-purple-300">OpenGrep (SAST)</h5>
+                                    </div>
+                                    <span className="text-3xl font-bold text-purple-400">
+                                        {scanData.stats.sastCount || 0}
+                                    </span>
+                                </div>
+                                <p className="text-xs text-purple-200/60">
+                                    Static Application Security Testing - Source code analysis
+                                </p>
+                            </div>
+
+                            {/* Trivy SCA */}
+                            <div className="bg-gradient-to-br from-cyan-500/10 to-blue-500/10 border border-cyan-500/20 rounded-lg p-4">
+                                <div className="flex items-center justify-between mb-3">
+                                    <div className="flex items-center gap-2">
+                                        <Shield className="w-5 h-5 text-cyan-400" />
+                                        <h5 className="font-bold text-cyan-300">Trivy (SCA)</h5>
+                                    </div>
+                                    <span className="text-3xl font-bold text-cyan-400">
+                                        {scanData.stats.trivyCount || 0}
+                                    </span>
+                                </div>
+                                <p className="text-xs text-cyan-200/60">
+                                    Software Composition Analysis - Dependencies & secrets
+                                </p>
+                            </div>
+                        </div>
+                        <div className="mt-4 pt-4 border-t border-white/10 flex items-center justify-between">
+                            <span className="text-sm text-muted-foreground">Total Findings</span>
+                            <span className="text-2xl font-bold text-indigo-400">
+                                {(scanData.stats.sastCount || 0) + (scanData.stats.trivyCount || 0)}
+                            </span>
+                        </div>
+                    </div>
 
                     {/* Language and Warnings */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

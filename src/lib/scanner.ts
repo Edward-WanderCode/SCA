@@ -1,4 +1,4 @@
-import { exec } from 'child_process';
+import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
 import fs from 'fs/promises';
@@ -91,56 +91,51 @@ async function detectLanguages(targetPath: string): Promise<{ languages: string[
     let scannedFiles = 0;
     const languageCounts = new Map<string, number>();
 
-    try {
-        // Note: fs.readdir with recursive requires Node 20+.
-        const files = await fs.readdir(targetPath, { recursive: true });
+    const IGNORE_DIRS = new Set(['node_modules', '.git', '.next', '.sca-data', 'dist', 'build', 'vendor']);
 
-        if (files.length > 0) {
-            // Preview files
-        } else {
-            console.log(`[Scanner] No files found! files var type: ${typeof files}, isArray: ${Array.isArray(files)}`);
-        }
+    async function walk(dir: string) {
+        try {
+            const entries = await fs.readdir(dir, { withFileTypes: true });
 
-        for (const file of files) {
-            const fileName = file as string;
-            // Skip common ignore directories
-            if (fileName.includes('node_modules') ||
-                fileName.includes('.git') ||
-                fileName.includes('.next') ||
-                fileName.includes('.sca-data')) {
-                continue;
-            }
+            for (const entry of entries) {
+                if (IGNORE_DIRS.has(entry.name)) continue;
 
-            const ext = path.extname(fileName).toLowerCase();
-            const base = path.basename(fileName).toLowerCase();
-            let isCodeFile = false;
+                const fullPath = path.join(dir, entry.name);
 
-            for (const [lang, config] of Object.entries(LANGUAGE_MAP)) {
-                if (config.extensions.includes(ext) || config.extensions.includes(base)) {
-                    detectedLanguages.add(lang);
-                    languageCounts.set(lang, (languageCounts.get(lang) || 0) + 1);
-                    isCodeFile = true;
-                }
-            }
+                if (entry.isDirectory()) {
+                    await walk(fullPath);
+                } else if (entry.isFile()) {
+                    const ext = path.extname(entry.name).toLowerCase();
+                    const base = entry.name.toLowerCase();
+                    let isCodeFile = false;
 
-            if (isCodeFile) {
-                try {
-                    const filePath = path.join(targetPath, fileName);
-                    // Verify it's a file
-                    const stat = await fs.stat(filePath);
-                    if (stat.isFile()) {
-                        scannedFiles++;
-                        const content = await fs.readFile(filePath, 'utf-8');
-                        scannedLines += content.split('\n').length;
+                    for (const [lang, config] of Object.entries(LANGUAGE_MAP)) {
+                        if (config.extensions.includes(ext) || config.extensions.includes(base)) {
+                            detectedLanguages.add(lang);
+                            languageCounts.set(lang, (languageCounts.get(lang) || 0) + 1);
+                            isCodeFile = true;
+                        }
                     }
-                } catch {
-                    // Ignore read errors
+
+                    if (isCodeFile) {
+                        try {
+                            scannedFiles++;
+                            const content = await fs.readFile(fullPath, 'utf-8');
+                            scannedLines += content.split('\n').length;
+                        } catch {
+                            // Ignore read errors
+                        }
+                    }
                 }
             }
+        } catch (error) {
+            console.error(`[Scanner] Error walking directory ${dir}:`, error);
         }
-    } catch (error) {
-        console.error('[Scanner] Language detection error:', error);
     }
+
+    console.log(`[Scanner] Detecting languages in: ${targetPath}`);
+    await walk(targetPath);
+
     const result = Array.from(detectedLanguages);
     console.log(`[Scanner] Detected languages: ${result.join(', ')}`);
     console.log(`[Scanner] Total scanned lines: ${scannedLines}`);
@@ -290,10 +285,112 @@ async function runTrivyScan(targetPath: string, binPath: string = 'trivy'): Prom
     }
 }
 
+/**
+ * Run OpenGrep scan with real-time progress tracking using spawn
+ */
+async function runOpengrepWithProgress(
+    binPath: string,
+    args: string[],
+    progressCallback?: (update: { progress: number, stage: string, details?: string }) => void
+): Promise<{ stdout: string, stderr: string }> {
+    return new Promise((resolve, reject) => {
+        // Use --time which provides periodic progress markers in stderr
+        // FORCE_COLOR=1 helps Semgrep/OpenGrep decide to show progress bars in pipes
+        const opengrepArgsWithProgress = [...args, '--time'];
+        const proc = spawn(binPath, opengrepArgsWithProgress, {
+            env: { ...process.env, PYTHONUNBUFFERED: '1', FORCE_COLOR: '1' }
+        });
+
+        let stdout = '';
+        let stderr = '';
+        let totalFiles = 0;
+        let scannedFiles = 0;
+        let lastProgressUpdate = Date.now();
+        const countedFiles = new Set<string>();
+
+        // Stream stdout (JSON results)
+        proc.stdout.on('data', (data) => {
+            stdout += data.toString();
+        });
+
+        // Stream stderr (progress info)
+        proc.stderr.on('data', (data) => {
+            const output = data.toString();
+            stderr += output;
+
+            // 1. Parse total files being scanned (once)
+            if (totalFiles === 0) {
+                const totalMatch = output.match(/Scanning\s+(\d+)\s+(?:files?|targets?)/i) ||
+                    output.match(/(\d+)\s+files?\s+found/i) ||
+                    output.match(/Targets:\s+(\d+)/i);
+                if (totalMatch) {
+                    totalFiles = parseInt(totalMatch[1]);
+                }
+            }
+
+            // 2. Look for standard progress bar: "50%|#####     | 500/1000"
+            // Use a regex that matches the count even if color codes are present
+            const progressMatch = output.match(/(\d+)%\s*\|.*\|\s*(\d+)\/(\d+)/);
+            if (progressMatch) {
+                scannedFiles = parseInt(progressMatch[2]);
+                totalFiles = parseInt(progressMatch[3]);
+            } else {
+                // 3. Fallback: Catch entries like "Analyzing file.cs"
+                const analyzeMatches = output.match(/(?:Analyzing|Checking|Scan)\s+([^\s\n\r"']+\.[a-z0-9]+)/gi);
+                if (analyzeMatches && totalFiles > 0) {
+                    analyzeMatches.forEach((match: string) => {
+                        const filePart = match.split(/\s+/).pop()?.replace(/^[./\\]+/, '');
+                        if (filePart && !countedFiles.has(filePart)) {
+                            countedFiles.add(filePart);
+                            if (scannedFiles < totalFiles) scannedFiles++;
+                        }
+                    });
+                }
+            }
+
+            // 4. Update UI
+            if (totalFiles > 0) {
+                const scanProgress = Math.min(scannedFiles / totalFiles, 1);
+                const progressPercentage = 50 + (scanProgress * 20); // 50% -> 70%
+
+                const now = Date.now();
+                if (now - lastProgressUpdate > 150) { // Fast updates (150ms)
+                    progressCallback?.({
+                        progress: Math.round(progressPercentage),
+                        stage: 'SAST analysis in progress...',
+                        details: `Scanning file ${scannedFiles} of ${totalFiles}`
+                    });
+                    lastProgressUpdate = now;
+                }
+            }
+        });
+
+        proc.on('error', (error) => {
+            console.error('[OpenGrep] Process error:', error);
+            reject(error);
+        });
+
+        proc.on('close', (code) => {
+            if (code === 0 || code === 1) {
+                // OpenGrep returns code 1 when findings are found, which is not an error
+                resolve({ stdout, stderr });
+            } else {
+                // Create an error object and attach results for partial recovery
+                const error = new Error(`OpenGrep exited with code ${code}`) as any;
+                error.stdout = stdout;
+                error.stderr = stderr;
+                error.code = code;
+                reject(error);
+            }
+        });
+    });
+}
+
+
 export async function runScan(
     targetPath: string,
     options: ScanOptions = {},
-    progressCallback?: (update: { progress: number, stage: string, details?: string, analysis?: ScanAnalysis }) => void
+    progressCallback?: (update: { progress: number, stage: string, details?: string, analysis?: ScanAnalysis, scannedFiles?: number, scannedLines?: number }) => void
 ): Promise<{
     findings: OpenGrepFinding[],
     languages: string[],
@@ -301,8 +398,11 @@ export async function runScan(
     scannedLines: number,
     scannedFiles: number,
     logs: string,
-    fileTree: FileNode[]
+    fileTree: FileNode[],
+    sastCount: number,
+    trivyCount: number
 }> {
+    console.log(`[Scanner] runScan called for path: ${targetPath}`);
     let logs = `[${new Date().toISOString()}] Starting scan on ${targetPath}\n`;
     logger.addLog('SCAN', `Starting scan on: ${targetPath}`);
     try {
@@ -397,7 +497,9 @@ export async function runScan(
         progressCallback?.({
             progress: 40,
             stage: 'Languages detected',
-            details: `Found ${detectedLanguages.join(', ')} (${scannedFiles} files, ${scannedLines} lines)`
+            details: `Found ${detectedLanguages.join(', ')} (${scannedFiles} files, ${scannedLines} lines)`,
+            scannedFiles: scannedFiles,
+            scannedLines: scannedLines
         });
 
         const {
@@ -453,7 +555,8 @@ export async function runScan(
 
         try {
             await fs.access(localRulesPath);
-            configArg = `"${localRulesPath}"`;
+            // spawn() doesn't need quotes - it handles arguments directly
+            configArg = localRulesPath;
             isOffline = true;
             logs += `[Scanner] ✓ Using local rules from: ${localRulesPath}\n`;
         } catch {
@@ -475,31 +578,67 @@ export async function runScan(
 
         progressCallback?.({ progress: 45, stage: 'Starting SAST scan...', details: 'Initializing Opengrep' });
 
-        // Sanitize targetPath for Windows (avoid trailing backslash escaping the quote)
-        let sanitizedTargetPath = targetPath;
-        if (sanitizedTargetPath.endsWith('\\') && !sanitizedTargetPath.endsWith(':\\')) {
-            sanitizedTargetPath = sanitizedTargetPath.slice(0, -1);
-        }
-
-        // Build the command
-        const sastCommand = `${opengrepBin} scan --config=${configArg} --exclude .next --exclude node_modules --no-git-ignore --scan-unknown-extensions --json --max-target-bytes=${maxTargetBytes} --timeout=${timeout} "${sanitizedTargetPath}"`;
+        // Build arguments array for spawn (no quotes or escaping needed)
+        const opengrepArgs = [
+            'scan',
+            `--config=${configArg}`,
+            '--exclude', '.next',
+            '--exclude', 'node_modules',
+            '--no-git-ignore',
+            '--scan-unknown-extensions',
+            '--json',
+            `--max-target-bytes=${maxTargetBytes}`,
+            `--timeout=${timeout}`,
+            targetPath  // spawn handles paths with spaces automatically
+        ];
 
         try {
-            logs += `[Scanner] Running SAST with: ${sastCommand}\n`;
+            logs += `[Scanner] Running SAST with: ${opengrepBin} ${opengrepArgs.join(' ')}\n`;
             logs += `[Scanner] ========== OPENGREP OUTPUT START ==========\n`;
 
             progressCallback?.({ progress: 50, stage: 'SAST analysis in progress...', details: 'Scanning source code' });
-            const { stdout, stderr } = await execAsync(sastCommand, { maxBuffer: 50 * 1024 * 1024 });
+
+            // Use spawn for real-time progress tracking
+            const { stdout, stderr } = await runOpengrepWithProgress(
+                opengrepBin,
+                opengrepArgs,
+                progressCallback
+            );
 
             // Capture stderr which contains verbose output, warnings, and skipped files info
             if (stderr) {
                 logs += `[Opengrep Verbose Output]\n${stderr}\n`;
 
-                // Extract skipped files information
+                // Extract file scanning statistics from stderr
+                // Pattern 1: "Scanning N files"
+                const scanningMatch = stderr.match(/Scanning\s+(\d+)\s+files?/i);
+                if (scanningMatch) {
+                    logs += `[Scanner] 📊 OpenGrep is scanning ${scanningMatch[1]} files\n`;
+                }
+
+                // Pattern 2: "ran N rules on M files"
+                const ranRulesMatch = stderr.match(/ran\s+(\d+)\s+rules?\s+on\s+(\d+)\s+files?/i);
+                if (ranRulesMatch) {
+                    logs += `[Scanner] ✓ Ran ${ranRulesMatch[1]} rules on ${ranRulesMatch[2]} files\n`;
+                }
+
+                // Pattern 3: Skipped files
                 const skippedMatch = stderr.match(/Scan skipped: (\d+) files? larger than ([\d.]+\s*[KMG]?B)/i);
                 if (skippedMatch) {
                     logs += `[Scanner] ⚠ ATTENTION: ${skippedMatch[1]} file(s) were skipped (larger than ${skippedMatch[2]})\n`;
                 }
+
+                // Pattern 4: "Scanning N targets with M Code rules"
+                const targetsMatch = stderr.match(/Scanning\s+(\d+)\s+targets?\s+with\s+(\d+)\s+Code\s+rules?/i);
+                if (targetsMatch) {
+                    logs += `[Scanner] 🎯 Targets: ${targetsMatch[1]}, Rules: ${targetsMatch[2]}\n`;
+                }
+            }
+
+            if (!stdout || stdout.trim().length === 0) {
+                logs += `[Scanner] ❌ ERROR: OpenGrep returned empty stdout\n`;
+                logs += `[Scanner] Stderr output:\n${stderr}\n`;
+                throw new Error('OpenGrep returned no output');
             }
 
             const output = JSON.parse(stdout);
@@ -515,7 +654,7 @@ export async function runScan(
 
             logs += `[Scanner] ========== OPENGREP OUTPUT END ==========\n`;
         } catch (err) {
-            const ogError = err as { message: string, stderr?: string, stdout?: string };
+            const ogError = err as { message: string, stderr?: string, stdout?: string, code?: number };
             logs += `[Opengrep Error] ${ogError.message}\n`;
             if (ogError.stderr) {
                 logs += `[Opengrep Stderr]\n${ogError.stderr}\n`;
@@ -526,10 +665,13 @@ export async function runScan(
                     logs += `[Scanner] ⚠ ${skippedMatch[1]} file(s) skipped (> ${skippedMatch[2]})\n`;
                 }
             }
-            if (ogError.stdout) {
+            if (ogError.stdout && ogError.stdout.trim().length > 0) {
                 try {
                     const output = JSON.parse(ogError.stdout);
                     sastFindings = output.results || [];
+                    if (sastFindings.length > 0) {
+                        logs += `[Scanner] 🛡️ Recovered ${sastFindings.length} findings from partial scan (Exit Code ${ogError.code || 'unknown'})\n`;
+                    }
                     if (output.errors && output.errors.length > 0) {
                         logs += `[Opengrep Errors from partial] ${JSON.stringify(output.errors, null, 2)}\n`;
                     }
@@ -543,12 +685,18 @@ export async function runScan(
         logs += `[Scanner] Starting Trivy SCA scan...\n`;
         progressCallback?.({ progress: 75, stage: 'Running dependency scan...', details: 'Trivy analyzing dependencies' });
 
+        const trivyProgress = setTimeout(() =>
+            progressCallback?.({ progress: 80, stage: 'Running dependency scan...', details: 'Scanning for vulnerabilities and secrets' })
+            , 1500);
+
         const trivyFindings = await runTrivyScan(targetPath, trivyBin);
+        clearTimeout(trivyProgress);
         logs += `[Scanner] Trivy found ${trivyFindings.length} vulnerabilities/secrets\n`;
 
         progressCallback?.({ progress: 85, stage: 'Dependency scan completed', details: `Found ${trivyFindings.length} vulnerabilities` });
 
         // Merge findings
+        progressCallback?.({ progress: 90, stage: 'Processing results...', details: 'Merging findings from all scanners' });
         const allFindings = [...sastFindings, ...trivyFindings];
         const warnings: string[] = [];
 
@@ -559,6 +707,7 @@ export async function runScan(
         logs += `[Scanner] Completed: ${sastFindings.length} (SAST) + ${trivyFindings.length} (Trivy) findings\n`;
 
         // Generate file tree
+        progressCallback?.({ progress: 95, stage: 'Finalizing...', details: 'Generating file structure' });
         const fileTree = await generateFileTree(targetPath);
 
         return {
@@ -568,7 +717,9 @@ export async function runScan(
             scannedLines,
             scannedFiles,
             logs,
-            fileTree
+            fileTree,
+            sastCount: sastFindings.length,
+            trivyCount: trivyFindings.length
         };
     } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
@@ -581,7 +732,9 @@ export async function runScan(
             scannedLines: 0,
             scannedFiles: 0,
             logs,
-            fileTree: []
+            fileTree: [],
+            sastCount: 0,
+            trivyCount: 0
         };
     }
 }
@@ -616,15 +769,24 @@ export async function cleanupTemp(p: string) {
 export async function saveScanResult(scan: ScanResult) {
     const dataDir = path.join(process.cwd(), '.sca-data');
     const historyFile = path.join(dataDir, 'scans.json');
+    const tempFile = path.join(dataDir, `scans.${Date.now()}.tmp.json`);
 
     try {
         await fs.mkdir(dataDir, { recursive: true });
         let history = [];
+
         try {
             const content = await fs.readFile(historyFile, 'utf-8');
             history = JSON.parse(content);
-        } catch {
-            // New history file
+
+            // Validate that history is an array
+            if (!Array.isArray(history)) {
+                console.error('[Scanner] History file is not an array, resetting...');
+                history = [];
+            }
+        } catch (err) {
+            // New history file or corrupted - start fresh
+            console.log('[Scanner] Starting new history file');
         }
 
         const existingIndex = history.findIndex((s: ScanResult) => s.id === scan.id);
@@ -634,10 +796,31 @@ export async function saveScanResult(scan: ScanResult) {
             history.unshift(scan);
         }
 
-        await fs.writeFile(historyFile, JSON.stringify(history, null, 2));
-        console.log(`[Scanner] Persisted scan ${scan.id} to history (${existingIndex >= 0 ? 'Updated' : 'Created'})`);
+        // Atomic write: write to temp file first, then rename
+        const jsonContent = JSON.stringify(history, null, 2);
+
+        // Validate JSON before writing
+        JSON.parse(jsonContent); // Will throw if invalid
+
+        await fs.writeFile(tempFile, jsonContent, 'utf-8');
+
+        // On Windows, fs.rename() cannot overwrite existing files
+        // So we need to delete the destination first
+        try {
+            await fs.unlink(historyFile);
+        } catch (e) {
+            // File doesn't exist yet, that's fine
+        }
+
+        await fs.rename(tempFile, historyFile);
+
+        console.log(`[Scanner] ✓ Persisted scan ${scan.id} to history (${existingIndex >= 0 ? 'Updated' : 'Created'})`);
     } catch (error) {
         console.error('[Scanner] Failed to save history:', error);
+
+        // Cleanup temp file if it exists
+        try {
+            await fs.unlink(tempFile);
+        } catch { }
     }
 }
-

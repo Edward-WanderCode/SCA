@@ -23,11 +23,13 @@ export async function GET(request: Request) {
 
             // Send current status immediately
             const current = logger.getScanProgress(scanId);
+            console.log(`[SSE] Connection for scanId: ${scanId}. Found in logger: ${!!current}`);
+
             if (current) {
-                console.log(`[SSE] Sending initial state for ${scanId}: ${current.progress}%`);
+                console.log(`[SSE] Sending initial state for ${scanId}: ${current.progress}%, Stage: ${current.stage}`);
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify(current)}\n\n`));
             } else {
-                console.log(`[SSE] No initial state found for ${scanId} yet`);
+                console.log(`[SSE] No initial state found for ${scanId} yet. Logger active scans: ${Array.from((logger as any).activeScans?.keys() || []).join(', ')}`);
                 // Send an initial "waiting" state
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({
                     scanId,

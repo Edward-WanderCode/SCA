@@ -272,6 +272,8 @@ export const exportScanToPDF = (scanData: ScanData) => {
                 currentY += 15;
 
                 issues.forEach((issue: Finding) => {
+                    doc.setFont('helvetica', 'bold');
+                    doc.setFontSize(9);
                     const messageLines = doc.splitTextToSize(issue.message, pageWidth - 45);
                     const neededHeight = 10 + (messageLines.length * 4) + (issue.code ? 35 : 0);
 
@@ -299,7 +301,6 @@ export const exportScanToPDF = (scanData: ScanData) => {
                     currentY += fileLinesHeight + 2;
 
                     // Message
-                    doc.setFontSize(9);
                     doc.setTextColor(COLORS.TEXT_MAIN[0], COLORS.TEXT_MAIN[1], COLORS.TEXT_MAIN[2]);
                     doc.text(messageLines, 20, currentY);
                     currentY += (messageLines.length * 4) + 4;
@@ -310,6 +311,7 @@ export const exportScanToPDF = (scanData: ScanData) => {
                         const safeCode = (issue.code || '').replace(/\r/g, '').replace(/[^\x20-\x7E\n\r\t\u00A0-\u01FF]/g, ' ');
                         const rawCode = safeCode.length > 2000 ? safeCode.substring(0, 2000) + '... (truncated)' : safeCode;
 
+                        doc.setFontSize(7.5);
                         const lines = rawCode.split('\n').slice(0, 10);
                         const wrappedLines = doc.splitTextToSize(lines.join('\n'), pageWidth - 55);
                         const finalLines = wrappedLines.slice(0, 15);
@@ -333,7 +335,6 @@ export const exportScanToPDF = (scanData: ScanData) => {
 
                         // Code Text - Use standard Helvetica with explicit spacing reset
                         doc.setFont('helvetica', 'normal');
-                        doc.setFontSize(7.5);
                         doc.setTextColor(51, 65, 85); // Slate-700
                         doc.setCharSpace(0); // Reset character spacing
 
@@ -620,6 +621,8 @@ export const generateScanPdfBuffer = (scanData: ScanData): { buffer: Buffer; fil
                 currentY += 15;
 
                 issues.forEach((issue: Finding) => {
+                    doc.setFont('helvetica', 'bold');
+                    doc.setFontSize(9);
                     const messageLines = doc.splitTextToSize(issue.message, pageWidth - 45);
                     const neededHeight = 10 + (messageLines.length * 4) + (issue.code ? 35 : 0);
 
@@ -645,7 +648,6 @@ export const generateScanPdfBuffer = (scanData: ScanData): { buffer: Buffer; fil
                     const fileLinesHeight = (Array.isArray(splitFile) ? splitFile.length : 1) * 3.5;
                     currentY += fileLinesHeight + 2;
 
-                    doc.setFontSize(9);
                     doc.setTextColor(COLORS.TEXT_MAIN[0], COLORS.TEXT_MAIN[1], COLORS.TEXT_MAIN[2]);
                     doc.text(messageLines, 20, currentY);
                     currentY += (messageLines.length * 4) + 4;
@@ -654,6 +656,7 @@ export const generateScanPdfBuffer = (scanData: ScanData): { buffer: Buffer; fil
                         const safeCode = (issue.code || '').replace(/\r/g, '').replace(/[^\x20-\x7E\n\r\t\u00A0-\u01FF]/g, ' ');
                         const rawCode = safeCode.length > 2000 ? safeCode.substring(0, 2000) + '... (truncated)' : safeCode;
 
+                        doc.setFontSize(7.5);
                         const lines = rawCode.split('\n').slice(0, 10);
                         const wrappedLines = doc.splitTextToSize(lines.join('\n'), pageWidth - 55);
                         const finalLines = wrappedLines.slice(0, 15);
@@ -674,7 +677,6 @@ export const generateScanPdfBuffer = (scanData: ScanData): { buffer: Buffer; fil
                         doc.rect(20, currentY, 1.5, boxHeight, 'F');
 
                         doc.setFont('helvetica', 'normal');
-                        doc.setFontSize(7.5);
                         doc.setTextColor(51, 65, 85);
                         doc.setCharSpace(0);
 

@@ -6,7 +6,9 @@ import {
     FolderOpen,
     FileText,
     FileCode,
-    File
+    File,
+    Search,
+    Code2
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -21,6 +23,8 @@ export interface FileNode {
 interface FileTreeProps {
     data: FileNode[];
     onSelectFile?: (path: string) => void;
+    onOpenLocation?: (path: string) => void;
+    onOpenInEditor?: (path: string) => void;
     selectedFile?: string | null;
     className?: string;
 }
@@ -29,18 +33,19 @@ const FileTreeNode = ({
     node,
     level,
     onSelect,
+    onOpenLocation,
+    onOpenInEditor,
     selectedPath
 }: {
     node: FileNode;
     level: number;
     onSelect?: (path: string) => void;
+    onOpenLocation?: (path: string) => void;
+    onOpenInEditor?: (path: string) => void;
     selectedPath?: string | null;
 }) => {
     const [isOpen, setIsOpen] = useState(false);
     const isSelected = selectedPath === node.path;
-
-    // Auto-expand if a child is selected (simplified: initially just collapse)
-    // For specialized auto-expand logic, we'd need to check children recursively.
 
     const handleClick = (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -65,7 +70,7 @@ const FileTreeNode = ({
         <div>
             <div
                 className={cn(
-                    "flex items-center gap-1.5 py-1 px-2 rounded cursor-pointer transition-colors text-sm select-none",
+                    "flex items-center gap-1.5 py-1 px-2 rounded cursor-pointer transition-colors text-sm select-none group",
                     level > 0 && "ml-4",
                     isSelected ? "bg-indigo-600/20 text-indigo-200" : "hover:bg-white/5 text-slate-300"
                 )}
@@ -78,7 +83,36 @@ const FileTreeNode = ({
                 )}
                 {node.type === 'file' && <span className="w-3" />} {/* Spacer */}
                 {getIcon()}
-                <span className="truncate">{node.name}</span>
+                <span className="truncate flex-1">{node.name}</span>
+
+                {node.type === 'file' && (
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                        {onOpenInEditor && (
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onOpenInEditor(node.path);
+                                }}
+                                className="p-1 hover:bg-white/10 rounded-md text-slate-500 hover:text-blue-400"
+                                title="Open in Editor"
+                            >
+                                <Code2 className="w-3 h-3" />
+                            </button>
+                        )}
+                        {onOpenLocation && (
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onOpenLocation(node.path);
+                                }}
+                                className="p-1 hover:bg-white/10 rounded-md text-slate-500 hover:text-indigo-400"
+                                title="Show in Explorer"
+                            >
+                                <Search className="w-3 h-3" />
+                            </button>
+                        )}
+                    </div>
+                )}
             </div>
             {isOpen && node.children && (
                 <div className="border-l border-white/5 ml-3">
@@ -88,6 +122,8 @@ const FileTreeNode = ({
                             node={child}
                             level={level + 1}
                             onSelect={onSelect}
+                            onOpenLocation={onOpenLocation}
+                            onOpenInEditor={onOpenInEditor}
                             selectedPath={selectedPath}
                         />
                     ))}
@@ -97,7 +133,7 @@ const FileTreeNode = ({
     );
 };
 
-export default function FileTree({ data, onSelectFile, selectedFile, className }: FileTreeProps) {
+export default function FileTree({ data, onSelectFile, onOpenLocation, onOpenInEditor, selectedFile, className }: FileTreeProps) {
     if (!data || data.length === 0) {
         return (
             <div className={cn("p-4 text-center text-muted-foreground text-sm", className)}>
@@ -121,6 +157,8 @@ export default function FileTree({ data, onSelectFile, selectedFile, className }
                         node={node}
                         level={0}
                         onSelect={onSelectFile}
+                        onOpenLocation={onOpenLocation}
+                        onOpenInEditor={onOpenInEditor}
                         selectedPath={selectedFile}
                     />
                 ))}

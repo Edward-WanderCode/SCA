@@ -18,10 +18,13 @@ import {
     Download,
     Trash2,
     MoreVertical,
-    RefreshCw
+    RefreshCw,
+    List,
+    Network
 } from "lucide-react"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
+import { ScanTreeView } from "@/components/ScanTreeView"
 
 interface ScanHistory {
     id: string
@@ -170,8 +173,10 @@ export default function HistoryPage() {
     const [search, setSearch] = useState('')
     const [filterStatus, setFilterStatus] = useState<'all' | 'completed' | 'failed'>('all')
     const [history, setHistory] = useState<ScanHistory[]>([])
+    const [treeData, setTreeData] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
     const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
+    const [viewMode, setViewMode] = useState<'list' | 'tree'>('tree') // Default to tree view
 
     React.useEffect(() => {
         fetchHistory()
@@ -187,10 +192,12 @@ export default function HistoryPage() {
     const fetchHistory = async () => {
         try {
             setLoading(true)
-            const response = await fetch('/api/history')
+            // Fetch both list and tree data
+            const response = await fetch('/api/history?view=tree')
             const data = await response.json()
             if (data.success) {
                 setHistory(data.history)
+                setTreeData(data.treeData || [])
             }
         } catch (error) {
             console.error('Failed to fetch history:', error)
@@ -360,6 +367,37 @@ export default function HistoryPage() {
                         className="w-full bg-card border border-white/5 rounded-lg pl-10 pr-4 py-3 outline-none focus:border-primary/50 transition-all"
                     />
                 </div>
+
+                {/* View Mode Toggle */}
+                <div className="flex gap-2 border border-white/10 rounded-lg p-1 bg-card">
+                    <button
+                        onClick={() => setViewMode('tree')}
+                        className={cn(
+                            "px-4 py-2 rounded-md transition-all flex items-center gap-2",
+                            viewMode === 'tree'
+                                ? "bg-primary text-white"
+                                : "text-muted-foreground hover:text-white"
+                        )}
+                        title="Tree View"
+                    >
+                        <Network className="w-4 h-4" />
+                        Tree
+                    </button>
+                    <button
+                        onClick={() => setViewMode('list')}
+                        className={cn(
+                            "px-4 py-2 rounded-md transition-all flex items-center gap-2",
+                            viewMode === 'list'
+                                ? "bg-primary text-white"
+                                : "text-muted-foreground hover:text-white"
+                        )}
+                        title="List View"
+                    >
+                        <List className="w-4 h-4" />
+                        List
+                    </button>
+                </div>
+
                 <div className="flex gap-2">
                     {(['all', 'completed', 'failed'] as const).map((status) => (
                         <button
@@ -378,208 +416,216 @@ export default function HistoryPage() {
                 </div>
             </div>
 
-            {/* History List */}
-            <div className="space-y-4">
-                {filteredHistory.map((scan, index) => {
-                    const totalFindings = getTotalFindings(scan.stats.findings)
-                    const criticalCount = scan.stats.findings.critical + scan.stats.findings.high
+            {/* History Display - Tree or List View */}
+            {viewMode === 'tree' ? (
+                <ScanTreeView
+                    treeData={treeData}
+                    onDeleteScan={handleDeleteScan}
+                    setDeleteConfirm={setDeleteConfirm}
+                />
+            ) : (
+                <div className="space-y-4">
+                    {filteredHistory.map((scan, index) => {
+                        const totalFindings = getTotalFindings(scan.stats.findings)
+                        const criticalCount = scan.stats.findings.critical + scan.stats.findings.high
 
-                    return (
-                        <motion.div
-                            key={scan.id}
-                            initial={{ opacity: 0, x: -20 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            transition={{ delay: index * 0.05 }}
-                            className="glass-card p-6 hover:border-primary/30 transition-all cursor-pointer group"
-                        >
-                            <div className="flex items-start justify-between gap-4">
-                                {/* Left Section */}
-                                <div className="flex-1 space-y-3">
-                                    <div className="flex items-center gap-3">
-                                        <div className={cn(
-                                            "w-10 h-10 rounded-lg flex items-center justify-center",
-                                            scan.source.type === 'git' ? 'bg-purple-500/10' : 'bg-blue-500/10'
-                                        )}>
-                                            {scan.source.type === 'git' ? (
-                                                <GitBranch className="w-5 h-5 text-purple-500" />
-                                            ) : (
-                                                <FileCode className="w-5 h-5 text-blue-500" />
-                                            )}
-                                        </div>
-                                        <div className="flex-1">
-                                            <h3 className="font-bold text-lg group-hover:text-primary transition-colors">
-                                                {scan.source.name}
-                                            </h3>
-                                            <div className="flex items-center gap-3 mt-1">
-                                                <span className="text-xs text-muted-foreground flex items-center gap-1">
-                                                    <Calendar className="w-3 h-3" />
-                                                    {formatTimestamp(scan.timestamp)}
-                                                </span>
-                                                <span className="text-xs text-muted-foreground">•</span>
-                                                <span className="text-xs text-muted-foreground">{scan.language}</span>
-                                                <span className={cn(
-                                                    "text-xs px-2 py-0.5 rounded-full font-medium capitalize",
-                                                    getStatusColor(scan.status)
-                                                )}>
-                                                    {scan.status}
-                                                </span>
+                        return (
+                            <motion.div
+                                key={scan.id}
+                                initial={{ opacity: 0, x: -20 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                transition={{ delay: index * 0.05 }}
+                                className="glass-card p-6 hover:border-primary/30 transition-all cursor-pointer group"
+                            >
+                                <div className="flex items-start justify-between gap-4">
+                                    {/* Left Section */}
+                                    <div className="flex-1 space-y-3">
+                                        <div className="flex items-center gap-3">
+                                            <div className={cn(
+                                                "w-10 h-10 rounded-lg flex items-center justify-center",
+                                                scan.source.type === 'git' ? 'bg-purple-500/10' : 'bg-blue-500/10'
+                                            )}>
+                                                {scan.source.type === 'git' ? (
+                                                    <GitBranch className="w-5 h-5 text-purple-500" />
+                                                ) : (
+                                                    <FileCode className="w-5 h-5 text-blue-500" />
+                                                )}
+                                            </div>
+                                            <div className="flex-1">
+                                                <h3 className="font-bold text-lg group-hover:text-primary transition-colors">
+                                                    {scan.source.name}
+                                                </h3>
+                                                <div className="flex items-center gap-3 mt-1">
+                                                    <span className="text-xs text-muted-foreground flex items-center gap-1">
+                                                        <Calendar className="w-3 h-3" />
+                                                        {formatTimestamp(scan.timestamp)}
+                                                    </span>
+                                                    <span className="text-xs text-muted-foreground">•</span>
+                                                    <span className="text-xs text-muted-foreground">{scan.language}</span>
+                                                    <span className={cn(
+                                                        "text-xs px-2 py-0.5 rounded-full font-medium capitalize",
+                                                        getStatusColor(scan.status)
+                                                    )}>
+                                                        {scan.status}
+                                                    </span>
+                                                </div>
                                             </div>
                                         </div>
+
+                                        {scan.source.url && (
+                                            <p className="text-xs text-muted-foreground font-mono bg-black/30 px-2 py-1 rounded inline-block">
+                                                {scan.source.url}
+                                            </p>
+                                        )}
                                     </div>
 
-                                    {scan.source.url && (
-                                        <p className="text-xs text-muted-foreground font-mono bg-black/30 px-2 py-1 rounded inline-block">
-                                            {scan.source.url}
-                                        </p>
+                                    {/* Stats Section */}
+                                    {scan.status === 'completed' && (
+                                        <div className="flex items-center gap-6">
+                                            <div className="text-center">
+                                                <p className="text-2xl font-bold">{totalFindings}</p>
+                                                <p className="text-[10px] text-muted-foreground uppercase">Findings</p>
+                                            </div>
+                                            <div className="text-center">
+                                                <p className={cn(
+                                                    "text-2xl font-bold",
+                                                    criticalCount > 0 ? "text-red-500" : "text-green-500"
+                                                )}>
+                                                    {criticalCount}
+                                                </p>
+                                                <p className="text-[10px] text-muted-foreground uppercase">Critical/High</p>
+                                            </div>
+                                            <div className="text-center">
+                                                <p className="text-2xl font-bold">{scan.stats.filesScanned}</p>
+                                                <p className="text-[10px] text-muted-foreground uppercase">Files</p>
+                                            </div>
+                                            <div className="text-center">
+                                                <p className="text-2xl font-bold">{scan.stats.duration}s</p>
+                                                <p className="text-[10px] text-muted-foreground uppercase">Duration</p>
+                                            </div>
+                                        </div>
                                     )}
+
+                                    {/* Actions */}
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                const confirmRescan = confirm(`Do you want to re-analyze ${scan.source.name}?`);
+                                                if (!confirmRescan) return;
+
+                                                // Redirect to scan page with pre-filled parameters
+                                                const query = new URLSearchParams({
+                                                    method: scan.source.type,
+                                                    path: scan.source.path || scan.source.url || '',
+                                                    compareWithId: scan.id
+                                                }).toString();
+
+                                                window.location.href = `/scan?${query}`;
+                                            }}
+                                            className="p-2 hover:bg-indigo-500/20 text-indigo-400 rounded-lg transition-colors border border-indigo-500/20 flex items-center justify-center shrink-0"
+                                            title="Rescan and compare"
+                                        >
+                                            <RefreshCw className="w-4 h-4" />
+                                        </button>
+                                        <Link
+                                            href={`/results/${scan.id}`}
+                                            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg flex items-center gap-2 transition-colors"
+                                        >
+                                            <Eye className="w-4 h-4" />
+                                            View
+                                        </Link>
+                                        <button
+                                            onClick={async (e) => {
+                                                e.stopPropagation();
+                                                const { exportScanToPDF } = await import('@/lib/pdf-export');
+                                                exportScanToPDF(scan as any);
+                                            }}
+                                            className="p-2 hover:bg-white/5 rounded-lg transition-colors"
+                                            title="Export PDF Report"
+                                        >
+                                            <Download className="w-4 h-4" />
+                                        </button>
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                setDeleteConfirm(scan.id);
+                                            }}
+                                            className="p-2 hover:bg-red-500/10 rounded-lg transition-colors group"
+                                            title="Delete scan"
+                                        >
+                                            <Trash2 className="w-4 h-4 group-hover:text-red-500" />
+                                        </button>
+                                    </div>
                                 </div>
 
-                                {/* Stats Section */}
-                                {scan.status === 'completed' && (
-                                    <div className="flex items-center gap-6">
-                                        <div className="text-center">
-                                            <p className="text-2xl font-bold">{totalFindings}</p>
-                                            <p className="text-[10px] text-muted-foreground uppercase">Findings</p>
+                                {/* Comparison Stats */}
+                                {(scan.stats as any).comparison && (
+                                    <div className="mt-4 flex items-center gap-6 py-2 px-4 bg-white/5 rounded-lg border border-white/5 text-xs">
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-muted-foreground uppercase font-bold tracking-wider">Comparison:</span>
                                         </div>
-                                        <div className="text-center">
-                                            <p className={cn(
-                                                "text-2xl font-bold",
-                                                criticalCount > 0 ? "text-red-500" : "text-green-500"
-                                            )}>
-                                                {criticalCount}
-                                            </p>
-                                            <p className="text-[10px] text-muted-foreground uppercase">Critical/High</p>
+                                        <div className="flex items-center gap-2 text-emerald-400 font-bold">
+                                            <CheckCircle2 className="w-3 h-3" />
+                                            <span>{(scan.stats as any).comparison.fixed} Fixed</span>
                                         </div>
-                                        <div className="text-center">
-                                            <p className="text-2xl font-bold">{scan.stats.filesScanned}</p>
-                                            <p className="text-[10px] text-muted-foreground uppercase">Files</p>
+                                        <div className="flex items-center gap-2 text-red-400 font-bold">
+                                            <AlertTriangle className="w-3 h-3" />
+                                            <span>{(scan.stats as any).comparison.new} New</span>
                                         </div>
-                                        <div className="text-center">
-                                            <p className="text-2xl font-bold">{scan.stats.duration}s</p>
-                                            <p className="text-[10px] text-muted-foreground uppercase">Duration</p>
+                                        <div className="flex items-center gap-2 text-slate-400">
+                                            <TrendingDown className="w-3 h-3" />
+                                            <span>{(scan.stats as any).comparison.existing} Persistent</span>
                                         </div>
                                     </div>
                                 )}
 
-                                {/* Actions */}
-                                <div className="flex items-center gap-2">
-                                    <button
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            const confirmRescan = confirm(`Do you want to re-analyze ${scan.source.name}?`);
-                                            if (!confirmRescan) return;
 
-                                            // Redirect to scan page with pre-filled parameters
-                                            const query = new URLSearchParams({
-                                                method: scan.source.type,
-                                                path: scan.source.path || scan.source.url || '',
-                                                compareWithId: scan.id
-                                            }).toString();
-
-                                            window.location.href = `/scan?${query}`;
-                                        }}
-                                        className="p-2 hover:bg-indigo-500/20 text-indigo-400 rounded-lg transition-colors border border-indigo-500/20 flex items-center justify-center shrink-0"
-                                        title="Rescan and compare"
-                                    >
-                                        <RefreshCw className="w-4 h-4" />
-                                    </button>
-                                    <Link
-                                        href={`/results/${scan.id}`}
-                                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg flex items-center gap-2 transition-colors"
-                                    >
-                                        <Eye className="w-4 h-4" />
-                                        View
-                                    </Link>
-                                    <button
-                                        onClick={async (e) => {
-                                            e.stopPropagation();
-                                            const { exportScanToPDF } = await import('@/lib/pdf-export');
-                                            exportScanToPDF(scan as any);
-                                        }}
-                                        className="p-2 hover:bg-white/5 rounded-lg transition-colors"
-                                        title="Export PDF Report"
-                                    >
-                                        <Download className="w-4 h-4" />
-                                    </button>
-                                    <button
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            setDeleteConfirm(scan.id);
-                                        }}
-                                        className="p-2 hover:bg-red-500/10 rounded-lg transition-colors group"
-                                        title="Delete scan"
-                                    >
-                                        <Trash2 className="w-4 h-4 group-hover:text-red-500" />
-                                    </button>
-                                </div>
-                            </div>
-
-                            {/* Comparison Stats */}
-                            {(scan.stats as any).comparison && (
-                                <div className="mt-4 flex items-center gap-6 py-2 px-4 bg-white/5 rounded-lg border border-white/5 text-xs">
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-muted-foreground uppercase font-bold tracking-wider">Comparison:</span>
-                                    </div>
-                                    <div className="flex items-center gap-2 text-emerald-400 font-bold">
-                                        <CheckCircle2 className="w-3 h-3" />
-                                        <span>{(scan.stats as any).comparison.fixed} Fixed</span>
-                                    </div>
-                                    <div className="flex items-center gap-2 text-red-400 font-bold">
-                                        <AlertTriangle className="w-3 h-3" />
-                                        <span>{(scan.stats as any).comparison.new} New</span>
-                                    </div>
-                                    <div className="flex items-center gap-2 text-slate-400">
-                                        <TrendingDown className="w-3 h-3" />
-                                        <span>{(scan.stats as any).comparison.existing} Persistent</span>
-                                    </div>
-                                </div>
-                            )}
-
-
-                            {/* Findings Breakdown */}
-                            {scan.status === 'completed' && (
-                                <div className="mt-4 pt-4 border-t border-white/5">
-                                    <div className="flex items-center gap-4">
-                                        <span className="text-xs text-muted-foreground uppercase font-semibold">Severity Breakdown:</span>
-                                        <div className="flex gap-3 flex-1">
-                                            {scan.stats.findings.critical > 0 && (
-                                                <div className="flex items-center gap-1">
-                                                    <div className="w-2 h-2 rounded-full bg-red-500"></div>
-                                                    <span className="text-xs">Critical: {scan.stats.findings.critical}</span>
-                                                </div>
-                                            )}
-                                            {scan.stats.findings.high > 0 && (
-                                                <div className="flex items-center gap-1">
-                                                    <div className="w-2 h-2 rounded-full bg-orange-500"></div>
-                                                    <span className="text-xs">High: {scan.stats.findings.high}</span>
-                                                </div>
-                                            )}
-                                            {scan.stats.findings.medium > 0 && (
-                                                <div className="flex items-center gap-1">
-                                                    <div className="w-2 h-2 rounded-full bg-yellow-500"></div>
-                                                    <span className="text-xs">Medium: {scan.stats.findings.medium}</span>
-                                                </div>
-                                            )}
-                                            {scan.stats.findings.low > 0 && (
-                                                <div className="flex items-center gap-1">
-                                                    <div className="w-2 h-2 rounded-full bg-blue-500"></div>
-                                                    <span className="text-xs">Low: {scan.stats.findings.low}</span>
-                                                </div>
-                                            )}
-                                            {scan.stats.findings.info > 0 && (
-                                                <div className="flex items-center gap-1">
-                                                    <div className="w-2 h-2 rounded-full bg-gray-500"></div>
-                                                    <span className="text-xs">Info: {scan.stats.findings.info}</span>
-                                                </div>
-                                            )}
+                                {/* Findings Breakdown */}
+                                {scan.status === 'completed' && (
+                                    <div className="mt-4 pt-4 border-t border-white/5">
+                                        <div className="flex items-center gap-4">
+                                            <span className="text-xs text-muted-foreground uppercase font-semibold">Severity Breakdown:</span>
+                                            <div className="flex gap-3 flex-1">
+                                                {scan.stats.findings.critical > 0 && (
+                                                    <div className="flex items-center gap-1">
+                                                        <div className="w-2 h-2 rounded-full bg-red-500"></div>
+                                                        <span className="text-xs">Critical: {scan.stats.findings.critical}</span>
+                                                    </div>
+                                                )}
+                                                {scan.stats.findings.high > 0 && (
+                                                    <div className="flex items-center gap-1">
+                                                        <div className="w-2 h-2 rounded-full bg-orange-500"></div>
+                                                        <span className="text-xs">High: {scan.stats.findings.high}</span>
+                                                    </div>
+                                                )}
+                                                {scan.stats.findings.medium > 0 && (
+                                                    <div className="flex items-center gap-1">
+                                                        <div className="w-2 h-2 rounded-full bg-yellow-500"></div>
+                                                        <span className="text-xs">Medium: {scan.stats.findings.medium}</span>
+                                                    </div>
+                                                )}
+                                                {scan.stats.findings.low > 0 && (
+                                                    <div className="flex items-center gap-1">
+                                                        <div className="w-2 h-2 rounded-full bg-blue-500"></div>
+                                                        <span className="text-xs">Low: {scan.stats.findings.low}</span>
+                                                    </div>
+                                                )}
+                                                {scan.stats.findings.info > 0 && (
+                                                    <div className="flex items-center gap-1">
+                                                        <div className="w-2 h-2 rounded-full bg-gray-500"></div>
+                                                        <span className="text-xs">Info: {scan.stats.findings.info}</span>
+                                                    </div>
+                                                )}
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                            )}
-                        </motion.div>
-                    )
-                })}
-            </div>
+                                )}
+                            </motion.div>
+                        )
+                    })}
+                </div>
+            )}
 
             {filteredHistory.length === 0 && (
                 <div className="glass-card p-12 text-center">

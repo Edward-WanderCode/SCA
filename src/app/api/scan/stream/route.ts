@@ -13,7 +13,7 @@ export async function POST(request: Request) {
             let scanId = '';
             try {
                 console.log('[STREAM] Request received, parsing body...')
-                const { url, method, folderPath, ruleSet = 'Community (Standard)' } = await request.json()
+                const { url, method, folderPath, ruleSet = 'Community (Standard)', compareWithId } = await request.json()
                 console.log(`[STREAM] Method: ${method}, URL: ${url}, Folder: ${folderPath}`)
 
                 let targetPath = process.cwd()
@@ -155,9 +155,9 @@ export async function POST(request: Request) {
                 }
 
                 console.log(`[STREAM] Starting runScan for scanId: ${scanId}`)
-                const { findings, languages, scannedLines, scannedFiles, logs, sastCount, trivyCount } = await runScan(
+                const { findings, languages, scannedLines, scannedFiles, logs, sastCount, trivyCount, analysis: analysisData } = await runScan(
                     targetPath,
-                    { ruleSet },
+                    { ruleSet, previousScanId: compareWithId },
                     progressCallback
                 )
 
@@ -177,53 +177,7 @@ export async function POST(request: Request) {
                 const fs = await import('fs/promises')
                 const path = await import('path')
 
-                const currentFindingsPromises = findings.map(async (f: any) => {
-                    try {
-                        const fingerprint = `${f.check_id}|${f.path}|${(f.extra?.message || '').substring(0, 50)}`
-
-                        let code = (f.extra?.rendered_lines || f.extra?.lines || 'No code snippet available').toString().trim()
-                        if (code === 'requires login' || code === 'required login') {
-                            try {
-                                const fullPath = path.isAbsolute(f.path) ? f.path : path.join(targetPath, f.path)
-                                const fileContent = await fs.readFile(fullPath, 'utf8')
-                                const lines = fileContent.split('\n')
-                                const startLine = Math.max(0, (f.start?.line || 1) - 1)
-                                const endLine = Math.min(lines.length, (f.end?.line || f.start?.line || 1))
-                                code = lines.slice(startLine, endLine).join('\n').trim()
-                            } catch (err) { }
-                        }
-
-                        const rawSev = (f.extra?.severity || 'LOW').toUpperCase()
-                        let mappedSev = 'low'
-                        if (['CRITICAL', 'FATAL'].includes(rawSev)) mappedSev = 'critical'
-                        else if (['ERROR', 'HIGH'].includes(rawSev)) mappedSev = 'high'
-                        else if (['WARNING', 'MEDIUM'].includes(rawSev)) mappedSev = 'medium'
-                        else if (['LOW'].includes(rawSev)) mappedSev = 'low'
-                        else if (['INFO'].includes(rawSev)) mappedSev = 'info'
-
-                        return {
-                            id: `scan-${Math.random().toString(36).substring(7)}`,
-                            fingerprint,
-                            isNew: false,
-                            title: f.check_id?.split('.').pop() || 'Issue',
-                            severity: mappedSev,
-                            file: f.path || 'unknown',
-                            line: f.start?.line || 0,
-                            column: f.start?.col || 0,
-                            message: f.extra?.message || 'No message provided',
-                            code: code || 'No code snippet available',
-                            category: f.extra?.metadata?.category || 'Security',
-                            cwe: f.extra?.metadata?.cwe?.[0],
-                            owasp: f.extra?.metadata?.owasp?.[0],
-                            fix: f.extra?.remediation || 'Please review the security best practices.'
-                        }
-                    } catch (err) {
-                        console.error(`[STREAM] Error processing finding for ${f.path}:`, err)
-                        return null
-                    }
-                })
-
-                const currentFindings = (await Promise.all(currentFindingsPromises)).filter(f => f !== null)
+                const currentFindings = findings
 
                 const scanResult = {
                     ...runningScan,
@@ -244,7 +198,8 @@ export async function POST(request: Request) {
                     },
                     languages: languages,
                     findings: currentFindings,
-                    logs: logs
+                    logs: logs,
+                    analysis: analysisData
                 }
 
                 await saveScanToDatabase(scanResult as any)

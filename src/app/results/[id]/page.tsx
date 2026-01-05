@@ -25,7 +25,9 @@ import {
     FileText,
     Terminal,
     X,
-    Send
+    Send,
+    FolderOpen,
+    Settings
 } from "lucide-react"
 import { copyToClipboard } from '@/lib/clipboard'
 import Link from "next/link"
@@ -67,6 +69,22 @@ export default function ResultsDetailPage() {
     const [basePath, setBasePath] = useState<string>('')
     const [sendingToTelegram, setSendingToTelegram] = useState(false)
     const [telegramMessage, setTelegramMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+    const [selectedEditor, setSelectedEditor] = useState<string>('vscode')
+    const [showEditorSettings, setShowEditorSettings] = useState(false)
+
+    // Load editor preference from localStorage
+    useEffect(() => {
+        const savedEditor = localStorage.getItem('preferredEditor');
+        if (savedEditor) {
+            setSelectedEditor(savedEditor);
+        }
+    }, []);
+
+    const saveEditorPreference = (editor: string) => {
+        setSelectedEditor(editor);
+        localStorage.setItem('preferredEditor', editor);
+        setShowEditorSettings(false);
+    };
 
     // Helper to normalize path separators
     const normalizePath = (path: string) => path.replace(/\\/g, '/');
@@ -212,6 +230,49 @@ export default function ResultsDetailPage() {
         }
     }
 
+    const handleOpenFileLocation = async (filePath: string) => {
+        try {
+            const response = await fetch('/api/utils/open-file', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    filePath,
+                    sourcePath: scanData.source.path
+                })
+            });
+            const data = await response.json();
+            if (!data.success) {
+                alert(data.error || 'Failed to open file location');
+            }
+        } catch (error) {
+            console.error('Error calling open-file API:', error);
+            alert('Failed to connect to the server');
+        }
+    };
+
+    const handleOpenInEditor = async (filePath: string, line: number, column: number) => {
+        try {
+            const response = await fetch('/api/utils/open-editor', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    filePath,
+                    sourcePath: scanData.source.path,
+                    line,
+                    column,
+                    editor: selectedEditor
+                })
+            });
+            const data = await response.json();
+            if (!data.success) {
+                alert(data.error || 'Failed to open in editor');
+            }
+        } catch (error) {
+            console.error('Error calling open-editor API:', error);
+            alert('Failed to connect to the server');
+        }
+    };
+
     useEffect(() => {
         if (scanId) {
             fetchScanDetail()
@@ -348,12 +409,22 @@ export default function ResultsDetailPage() {
                             <h3 className="text-base md:text-lg font-bold mb-1 line-clamp-1">{finding.title}</h3>
                             <p className="text-sm text-muted-foreground mb-3 line-clamp-2">{finding.message}</p>
                             <div className="flex flex-wrap items-center gap-4 text-xs font-mono">
-                                <span className="flex items-center gap-1 bg-black/30 px-2 py-1 rounded border border-white/5">
+                                <div className="flex items-center gap-1 bg-black/30 pl-2 pr-1 py-1 rounded border border-white/5">
                                     <FileCode className="w-3 h-3" />
                                     <span className="truncate max-w-[200px] md:max-w-md">
                                         {finding.file}:{finding.line}
                                     </span>
-                                </span>
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleOpenFileLocation(finding.file);
+                                        }}
+                                        className="p-1 hover:bg-white/10 rounded-md text-indigo-400 transition-colors ml-1"
+                                        title="Show in Explorer"
+                                    >
+                                        <FolderOpen className="w-3 h-3" />
+                                    </button>
+                                </div>
                                 {finding.cwe && (
                                     <span className="text-indigo-400">{finding.cwe}</span>
                                 )}
@@ -432,9 +503,19 @@ export default function ResultsDetailPage() {
                                     <CheckCircle2 className="w-4 h-4" />
                                     Mark as Fixed
                                 </button>
-                                <button className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 border border-slate-600 text-white font-medium rounded-lg text-sm transition-colors">
+                                <button
+                                    onClick={() => handleOpenInEditor(finding.file, finding.line, finding.column)}
+                                    className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 border border-slate-600 text-white font-medium rounded-lg text-sm transition-colors"
+                                >
                                     <ExternalLink className="w-4 h-4" />
                                     View in Editor
+                                </button>
+                                <button
+                                    onClick={() => handleOpenFileLocation(finding.file)}
+                                    className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 border border-slate-600 text-white font-medium rounded-lg text-sm transition-colors"
+                                >
+                                    <FolderOpen className="w-4 h-4" />
+                                    Open Folder
                                 </button>
                                 <button className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 border border-slate-600 text-white font-medium rounded-lg text-sm transition-colors md:ml-auto">
                                     False Positive
@@ -597,6 +678,13 @@ export default function ResultsDetailPage() {
                 </div>
                 <div className="flex items-center gap-2">
                     <button
+                        onClick={() => setShowEditorSettings(true)}
+                        className="p-2 bg-slate-700 hover:bg-slate-600 border border-slate-600 text-white rounded-lg transition-colors"
+                        title="Editor Settings"
+                    >
+                        <Settings className="w-4 h-4" />
+                    </button>
+                    <button
                         onClick={() => setShowLogModal(true)}
                         className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 border border-slate-600 text-white font-medium rounded-lg transition-colors text-sm"
                     >
@@ -676,8 +764,8 @@ export default function ResultsDetailPage() {
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -20 }}
                     className={`p-4 rounded-lg flex items-center gap-3 ${telegramMessage.type === 'success'
-                            ? 'bg-green-500/10 border border-green-500/20 text-green-400'
-                            : 'bg-red-500/10 border border-red-500/20 text-red-400'
+                        ? 'bg-green-500/10 border border-green-500/20 text-green-400'
+                        : 'bg-red-500/10 border border-red-500/20 text-red-400'
                         }`}
                 >
                     {telegramMessage.type === 'success' ? (
@@ -694,6 +782,63 @@ export default function ResultsDetailPage() {
                     </button>
                 </motion.div>
             )}
+            {/* Editor Settings Modal */}
+            {showEditorSettings && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+                    <motion.div
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className="glass-card w-full max-w-md p-6 space-y-6"
+                    >
+                        <div className="flex items-center justify-between">
+                            <h3 className="text-xl font-bold flex items-center gap-2">
+                                <Settings className="w-5 h-5 text-indigo-400" />
+                                Editor Settings
+                            </h3>
+                            <button onClick={() => setShowEditorSettings(false)} className="p-1 hover:bg-white/10 rounded-lg transition-colors">
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        <p className="text-sm text-muted-foreground">
+                            Chọn IDE/Editor bạn muốn sử dụng khi nhấn "View in Editor".
+                        </p>
+
+                        <div className="space-y-2">
+                            {[
+                                { id: 'vscode', name: 'Visual Studio Code', icon: '💻' },
+                                { id: 'cursor', name: 'Cursor AI', icon: '🤖' },
+                                { id: 'webstorm', name: 'WebStorm', icon: '🌐' },
+                                { id: 'intellij', name: 'IntelliJ IDEA', icon: '☕' },
+                                { id: 'sublime', name: 'Sublime Text', icon: '📝' },
+                                { id: 'notepadpp', name: 'Notepad++', icon: '📄' },
+                            ].map((editor) => (
+                                <button
+                                    key={editor.id}
+                                    onClick={() => saveEditorPreference(editor.id)}
+                                    className={cn(
+                                        "w-full flex items-center gap-3 p-3 rounded-lg border transition-all text-left",
+                                        selectedEditor === editor.id
+                                            ? "bg-indigo-600/20 border-indigo-500/50 text-indigo-100"
+                                            : "hover:bg-white/5 border-white/5 text-slate-400"
+                                    )}
+                                >
+                                    <span className="text-xl">{editor.icon}</span>
+                                    <span className="font-medium">{editor.name}</span>
+                                    {selectedEditor === editor.id && (
+                                        <CheckCircle2 className="w-4 h-4 ml-auto text-indigo-400" />
+                                    )}
+                                </button>
+                            ))}
+                        </div>
+
+                        <div className="pt-4 border-t border-white/10 text-[10px] text-muted-foreground italic">
+                            * Lưu ý: Editor được chọn phải được cài đặt trong PATH hệ thống.
+                        </div>
+                    </motion.div>
+                </div>
+            )}
+
             {/* Scan Log Modal */}
             {showLogModal && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
@@ -1056,6 +1201,8 @@ export default function ResultsDetailPage() {
                                 setGroupBy('file');
                                 setSelectedGroupName(path);
                             }}
+                            onOpenLocation={handleOpenFileLocation}
+                            onOpenInEditor={(path) => handleOpenInEditor(path, 1, 1)}
                         />
                     </div>
                 </div>

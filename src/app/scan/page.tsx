@@ -63,6 +63,7 @@ function ScanPageContent() {
         origins: { name: string, rules: number }[]
     } | null>(null)
     const [showFileBrowser, setShowFileBrowser] = useState(false)
+    const [compareWithId, setCompareWithId] = useState<string | null>(null)
 
 
     const startScanWithParams = async (scanMethod: string, scanUrl: string, scanPath: string, compareId?: string) => {
@@ -207,7 +208,7 @@ function ScanPageContent() {
                 setIsScanning(false)
             }
         } else {
-            startScanWithParams(method, repoUrl, folderPath)
+            startScanWithParams(method, repoUrl, folderPath, compareWithId || undefined)
         }
     }
 
@@ -222,6 +223,7 @@ function ScanPageContent() {
             else setFolderPath(pathParam)
 
             // Auto start if coming from rescan
+            if (compareId) setCompareWithId(compareId);
             startScanWithParams(methodParam, pathParam, pathParam, compareId || undefined)
         }
 

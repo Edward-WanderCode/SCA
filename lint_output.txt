@@ -1,0 +1,215 @@
+
+E:\Code\SCA\scripts\migrate-to-sqlite.ts
+  20:18  warning  'error' is defined but never used         @typescript-eslint/no-unused-vars
+  69:67  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  89:29  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+E:\Code\SCA\src\app\api\history\route.ts
+   54:45  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   84:58  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   84:66  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  122:21  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  146:21  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+E:\Code\SCA\src\app\api\opengrep\download-rule\route.ts
+  31:26  warning  'e' is defined but never used             @typescript-eslint/no-unused-vars
+  40:29  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  54:21  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+E:\Code\SCA\src\app\api\opengrep\download-rules\route.ts
+  9:21  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+E:\Code\SCA\src\app\api\scan\progress\route.ts
+  19:26   warning  'e' is defined but never used             @typescript-eslint/no-unused-vars
+  32:123  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  51:30   warning  'e' is defined but never used             @typescript-eslint/no-unused-vars
+
+E:\Code\SCA\src\app\api\scan\route.ts
+   33:27  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   66:49  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   73:31  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   78:22  warning  'e' is defined but never used             @typescript-eslint/no-unused-vars
+   86:74  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   88:73  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  101:26  warning  'err' is defined but never used           @typescript-eslint/no-unused-vars
+  127:75  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  128:42  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  139:58  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  141:56  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  142:53  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  159:48  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  191:67  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  260:21  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+E:\Code\SCA\src\app\api\scan\stream\route.ts
+    1:10   warning  'NextResponse' is defined but never used   @typescript-eslint/no-unused-vars
+   50:42   error    Unexpected any. Specify a different type   @typescript-eslint/no-explicit-any
+   89:35   error    Unexpected any. Specify a different type   @typescript-eslint/no-explicit-any
+  133:57   error    Unexpected any. Specify a different type   @typescript-eslint/no-explicit-any
+  147:121  error    Unexpected any. Specify a different type   @typescript-eslint/no-explicit-any
+  177:23   warning  'fs' is assigned a value but never used    @typescript-eslint/no-unused-vars
+  178:23   warning  'path' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  192:66   error    Unexpected any. Specify a different type   @typescript-eslint/no-explicit-any
+  193:62   error    Unexpected any. Specify a different type   @typescript-eslint/no-explicit-any
+  194:64   error    Unexpected any. Specify a different type   @typescript-eslint/no-explicit-any
+  195:61   error    Unexpected any. Specify a different type   @typescript-eslint/no-explicit-any
+  196:62   error    Unexpected any. Specify a different type   @typescript-eslint/no-explicit-any
+  205:56   error    Unexpected any. Specify a different type   @typescript-eslint/no-explicit-any
+  246:75   error    Unexpected any. Specify a different type   @typescript-eslint/no-explicit-any
+  324:29   error    Unexpected any. Specify a different type   @typescript-eslint/no-explicit-any
+
+E:\Code\SCA\src\app\api\telegram\route.ts
+  23:14  warning  'error' is defined but never used  @typescript-eslint/no-unused-vars
+  50:14  warning  'error' is defined but never used  @typescript-eslint/no-unused-vars
+  80:14  warning  'error' is defined but never used  @typescript-eslint/no-unused-vars
+
+E:\Code\SCA\src\app\api\telegram\send\route.ts
+  48:57  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+E:\Code\SCA\src\app\api\upload\route.ts
+   6:8   warning  'os' is defined but never used            @typescript-eslint/no-unused-vars
+  53:21  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+E:\Code\SCA\src\app\api\utils\fs\route.ts
+  66:22  warning  'e' is defined but never used             @typescript-eslint/no-unused-vars
+  82:21  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+E:\Code\SCA\src\app\api\utils\open-editor\route.ts
+  23:18  warning  'error' is defined but never used         @typescript-eslint/no-unused-vars
+  69:21  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+E:\Code\SCA\src\app\api\utils\open-file\route.ts
+  23:18  warning  'error' is defined but never used         @typescript-eslint/no-unused-vars
+  41:21  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+E:\Code\SCA\src\app\api\utils\select-folder\route.ts
+  28:21  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+E:\Code\SCA\src\app\history\page.tsx
+    8:5   warning  'Filter' is defined but never used                @typescript-eslint/no-unused-vars
+   16:5   warning  'TrendingUp' is defined but never used            @typescript-eslint/no-unused-vars
+   20:5   warning  'MoreVertical' is defined but never used          @typescript-eslint/no-unused-vars
+   53:16  error    Unexpected any. Specify a different type          @typescript-eslint/no-explicit-any
+   56:7   warning  'mockHistory' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  176:46  error    Unexpected any. Specify a different type          @typescript-eslint/no-explicit-any
+  177:12  warning  'loading' is assigned a value but never used      @typescript-eslint/no-unused-vars
+  542:73  error    Unexpected any. Specify a different type          @typescript-eslint/no-explicit-any
+  563:49  error    Unexpected any. Specify a different type          @typescript-eslint/no-explicit-any
+  570:67  error    Unexpected any. Specify a different type          @typescript-eslint/no-explicit-any
+  574:67  error    Unexpected any. Specify a different type          @typescript-eslint/no-explicit-any
+  578:67  error    Unexpected any. Specify a different type          @typescript-eslint/no-explicit-any
+
+E:\Code\SCA\src\app\page.tsx
+    7:3   warning  'ShieldCheck' is defined but never used          @typescript-eslint/no-unused-vars
+   21:10  warning  'formatDistanceToNow' is defined but never used  @typescript-eslint/no-unused-vars
+   25:10  warning  'loading' is assigned a value but never used     @typescript-eslint/no-unused-vars
+   32:56  error    Unexpected any. Specify a different type         @typescript-eslint/no-explicit-any
+   45:67  error    Unexpected any. Specify a different type         @typescript-eslint/no-explicit-any
+   47:66  error    Unexpected any. Specify a different type         @typescript-eslint/no-explicit-any
+   49:63  error    Unexpected any. Specify a different type         @typescript-eslint/no-explicit-any
+  164:79  error    Unexpected any. Specify a different type         @typescript-eslint/no-explicit-any
+  164:87  error    Unexpected any. Specify a different type         @typescript-eslint/no-explicit-any
+
+E:\Code\SCA\src\app\results\[id]\page.tsx
+    38:11   warning  'Finding' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+    56:46   error    Unexpected any. Specify a different type                                                                            @typescript-eslint/no-explicit-any
+    68:54   error    Unexpected any. Specify a different type                                                                            @typescript-eslint/no-explicit-any
+   102:50   error    Unexpected any. Specify a different type                                                                            @typescript-eslint/no-explicit-any
+   105:21   error    Unexpected any. Specify a different type                                                                            @typescript-eslint/no-explicit-any
+   107:36   error    Unexpected any. Specify a different type                                                                            @typescript-eslint/no-explicit-any
+   135:38   error    Unexpected any. Specify a different type                                                                            @typescript-eslint/no-explicit-any
+   135:44   error    Unexpected any. Specify a different type                                                                            @typescript-eslint/no-explicit-any
+   136:50   error    Unexpected any. Specify a different type                                                                            @typescript-eslint/no-explicit-any
+   139:31   error    Unexpected any. Specify a different type                                                                            @typescript-eslint/no-explicit-any
+   153:63   error    Unexpected any. Specify a different type                                                                            @typescript-eslint/no-explicit-any
+   202:50   error    Unexpected any. Specify a different type                                                                            @typescript-eslint/no-explicit-any
+   204:50   error    Unexpected any. Specify a different type                                                                            @typescript-eslint/no-explicit-any
+   204:78   error    Unexpected any. Specify a different type                                                                            @typescript-eslint/no-explicit-any
+   280:8    warning  React Hook useEffect has a missing dependency: 'fetchScanDetail'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+   310:8    warning  React Hook useEffect has a missing dependency: 'fetchScanDetail'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+   336:59   error    Unexpected any. Specify a different type                                                                            @typescript-eslint/no-explicit-any
+   366:37   error    Unexpected any. Specify a different type                                                                            @typescript-eslint/no-explicit-any
+   583:76   error    Unexpected any. Specify a different type                                                                            @typescript-eslint/no-explicit-any
+   598:76   error    Unexpected any. Specify a different type                                                                            @typescript-eslint/no-explicit-any
+   723:45   error    Unexpected any. Specify a different type                                                                            @typescript-eslint/no-explicit-any
+   749:57   error    A `require()` style import is forbidden                                                                             @typescript-eslint/no-require-imports
+   804:71   error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`                                                     react/no-unescaped-entities
+   804:86   error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`                                                     react/no-unescaped-entities
+  1076:79   error    Unexpected any. Specify a different type                                                                            @typescript-eslint/no-explicit-any
+  1076:111  error    Unexpected any. Specify a different type                                                                            @typescript-eslint/no-explicit-any
+  1101:65   error    Unexpected any. Specify a different type                                                                            @typescript-eslint/no-explicit-any
+  1113:75   error    Unexpected any. Specify a different type                                                                            @typescript-eslint/no-explicit-any
+  1113:89   error    Unexpected any. Specify a different type                                                                            @typescript-eslint/no-explicit-any
+  1119:117  error    Unexpected any. Specify a different type                                                                            @typescript-eslint/no-explicit-any
+  1166:86   error    Unexpected any. Specify a different type                                                                            @typescript-eslint/no-explicit-any
+  1172:71   error    Unexpected any. Specify a different type                                                                            @typescript-eslint/no-explicit-any
+  1173:68   error    Unexpected any. Specify a different type                                                                            @typescript-eslint/no-explicit-any
+
+E:\Code\SCA\src\app\rules\page.tsx
+    8:5   warning  'Filter' is defined but never used        @typescript-eslint/no-unused-vars
+  148:25  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+E:\Code\SCA\src\app\scan\page.tsx
+   46:12  warning  'isScanning' is assigned a value but never used                                                                                                    @typescript-eslint/no-unused-vars
+   51:22  warning  'setFindings' is assigned a value but never used                                                                                                   @typescript-eslint/no-unused-vars
+   51:46  error    Unexpected any. Specify a different type                                                                                                           @typescript-eslint/no-explicit-any
+   52:23  warning  'setLanguages' is assigned a value but never used                                                                                                  @typescript-eslint/no-unused-vars
+   53:26  warning  'setMissingPacks' is assigned a value but never used                                                                                               @typescript-eslint/no-unused-vars
+   54:52  error    Unexpected any. Specify a different type                                                                                                           @typescript-eslint/no-explicit-any
+  144:25  error    Unexpected any. Specify a different type                                                                                                           @typescript-eslint/no-explicit-any
+  204:29  error    Unexpected any. Specify a different type                                                                                                           @typescript-eslint/no-explicit-any
+  221:38  error    Unexpected any. Specify a different type                                                                                                           @typescript-eslint/no-explicit-any
+  236:61  error    Unexpected any. Specify a different type                                                                                                           @typescript-eslint/no-explicit-any
+  247:8   warning  React Hook React.useEffect has missing dependencies: 'searchParams' and 'startScanWithParams'. Either include them or remove the dependency array  react-hooks/exhaustive-deps
+  378:84  error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`                                                                                    react/no-unescaped-entities
+  378:96  error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`                                                                                    react/no-unescaped-entities
+  386:65  error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free                                @typescript-eslint/ban-ts-comment
+
+E:\Code\SCA\src\components\ScanTreeView.tsx
+   10:5   warning  'GitBranch' is defined but never used      @typescript-eslint/no-unused-vars
+   11:5   warning  'FileCode' is defined but never used       @typescript-eslint/no-unused-vars
+   20:5   warning  'AlertTriangle' is defined but never used  @typescript-eslint/no-unused-vars
+   21:5   warning  'CheckCircle2' is defined but never used   @typescript-eslint/no-unused-vars
+   49:16  error    Unexpected any. Specify a different type   @typescript-eslint/no-explicit-any
+   76:42  warning  'onDeleteScan' is defined but never used   @typescript-eslint/no-unused-vars
+  330:93  error    Unexpected any. Specify a different type   @typescript-eslint/no-explicit-any
+
+E:\Code\SCA\src\components\ServerFileBrowserModal.tsx
+  63:23  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+E:\Code\SCA\src\lib\db-helpers.ts
+   29:16  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   30:16  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   33:15  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   79:59  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  134:59  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+E:\Code\SCA\src\lib\incremental-scan.ts
+   17:15  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   43:14  warning  'error' is defined but never used         @typescript-eslint/no-unused-vars
+  132:27  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  136:26  warning  'e' is defined but never used             @typescript-eslint/no-unused-vars
+  165:15  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  167:4   error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  179:18  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  180:18  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  183:4   error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  240:19  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+E:\Code\SCA\src\lib\scanner.ts
+  331:81  error    Unexpected any. Specify a different type                  @typescript-eslint/no-explicit-any
+  342:15  error    Unexpected any. Specify a different type                  @typescript-eslint/no-explicit-any
+  344:12  error    Unexpected any. Specify a different type                  @typescript-eslint/no-explicit-any
+  362:26  warning  'err' is defined but never used                           @typescript-eslint/no-unused-vars
+  401:15  error    Unexpected any. Specify a different type                  @typescript-eslint/no-explicit-any
+  410:16  error    Unexpected any. Specify a different type                  @typescript-eslint/no-explicit-any
+  432:13  error    'filesToScan' is never reassigned. Use 'const' instead    prefer-const
+  433:13  error    'isIncremental' is never reassigned. Use 'const' instead  prefer-const
+  444:29  error    Unexpected any. Specify a different type                  @typescript-eslint/no-explicit-any
+  581:40  error    Unexpected any. Specify a different type                  @typescript-eslint/no-explicit-any
+  598:32  error    Unexpected any. Specify a different type                  @typescript-eslint/no-explicit-any
+  602:74  error    Unexpected any. Specify a different type                  @typescript-eslint/no-explicit-any
+
+Γ£û 163 problems (122 errors, 41 warnings)
+  2 errors and 0 warnings potentially fixable with the `--fix` option.
+

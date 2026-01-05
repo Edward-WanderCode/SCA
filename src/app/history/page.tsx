@@ -34,6 +34,7 @@ interface ScanHistory {
     }
     stats: {
         filesScanned: number
+        linesScanned?: number | string
         rulesApplied: number
         duration: number
         findings: {
@@ -46,6 +47,7 @@ interface ScanHistory {
     }
     status: 'completed' | 'failed' | 'running'
     language: string
+    findings?: any[]  // Optional findings array for PDF export
 }
 
 const mockHistory: ScanHistory[] = [
@@ -492,7 +494,7 @@ export default function HistoryPage() {
                                         onClick={async (e) => {
                                             e.stopPropagation();
                                             const { exportScanToPDF } = await import('@/lib/pdf-export');
-                                            exportScanToPDF(scan);
+                                            exportScanToPDF(scan as any);
                                         }}
                                         className="p-2 hover:bg-white/5 rounded-lg transition-colors"
                                         title="Export PDF Report"

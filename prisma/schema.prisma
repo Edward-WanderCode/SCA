@@ -1,0 +1,98 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model Scan {
+  id        String   @id
+  timestamp DateTime
+  status    String   // 'running' | 'completed' | 'failed'
+  
+  // Source information
+  sourceName String
+  sourceType String
+  sourceUrl  String?
+  sourcePath String?
+  
+  // Statistics
+  filesScanned Int      @default(0)
+  linesScanned Int      @default(0)
+  duration     Int      @default(0)
+  sastCount    Int      @default(0)
+  trivyCount   Int      @default(0)
+  
+  // Findings count by severity
+  criticalCount Int @default(0)
+  highCount     Int @default(0)
+  mediumCount   Int @default(0)
+  lowCount      Int @default(0)
+  infoCount     Int @default(0)
+  
+  // Languages detected (stored as JSON string)
+  languages String @default("[]")
+  
+  // Logs (optional, can be large)
+  logs String?
+  
+  // File tree (stored as JSON string)
+  fileTree String @default("[]")
+  
+  // Analysis data (stored as JSON string)
+  analysis String?
+  
+  // Comparison data for rescans
+  isRescan Boolean @default(false)
+  comparedWithId String?
+  
+  // Relationships
+  findings Finding[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@index([timestamp])
+  @@index([status])
+  @@index([sourceName])
+}
+
+model Finding {
+  id          String @id @default(cuid())
+  fingerprint String
+  isNew       Boolean @default(false)
+  
+  // Finding details
+  title    String
+  severity String // 'critical' | 'high' | 'medium' | 'low' | 'info'
+  message  String
+  category String
+  
+  // Location
+  file   String
+  line   Int
+  column Int @default(0)
+  
+  // Code and fix
+  code String
+  fix  String?
+  
+  // Metadata
+  cwe   String?
+  owasp String?
+  
+  // Relationship to scan
+  scanId String
+  scan   Scan   @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime @default(now())
+  
+  @@index([scanId])
+  @@index([severity])
+  @@index([fingerprint])
+}

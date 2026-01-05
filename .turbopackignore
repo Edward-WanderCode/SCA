@@ -1,0 +1,8 @@
+# Ignore OpenGrep rules folder
+OpenGrep/rules/**
+
+# Ignore Trivy folder
+Trivy/**
+
+# Ignore Remote uploads
+Remote/**

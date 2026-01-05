@@ -14,9 +14,11 @@ SCA (Security Code Analysis) là nền tảng quản lý quét bảo mật mã n
 *   **📊 Báo Cáo & Trực Quan Hóa**:
     *   Biểu đồ thống kê lỗ hổng theo mức độ nghiêm trọng.
     *   Xuất báo cáo **PDF** chuyên nghiệp cho các đợt kiểm toán (Audit).
+*   **📱 Telegram Notifications**: Tự động gửi báo cáo PDF lên Telegram Chat Group sau khi hoàn thành scan.
 *   **🖥️ Real-time Terminal**: Theo dõi tiến trình quét và log chi tiết trực tiếp trên trình duyệt.
 *   **🛡️ Quản Lý Rules**: Tải xuống và cập nhật các bộ luật bảo mật (Security Rules) từ cộng đồng và các tổ chức uy tín (OWASP, v.v.).
 *   **🔐 Authentication**: Tích hợp sẵn hệ thống xác thực người dùng (NextAuth.js).
+
 
 ---
 
@@ -124,7 +126,13 @@ e:\Code\SCA\
 
 ---
 
-## 🛡️ License
+## � Telegram Integration
+
+Để thiết lập thông báo Telegram tự động, xem hướng dẫn chi tiết tại: [TELEGRAM_SETUP.md](./TELEGRAM_SETUP.md)
+
+---
+
+## �🛡️ License
 
 Private / Internal Project.
 Built with ❤️ by **Antigravity**.

@@ -24,7 +24,8 @@ import {
     Code2,
     FileText,
     Terminal,
-    X
+    X,
+    Send
 } from "lucide-react"
 import { copyToClipboard } from '@/lib/clipboard'
 import Link from "next/link"
@@ -64,6 +65,8 @@ export default function ResultsDetailPage() {
     const [scanDetails, setScanDetails] = useState('')
     const [analysisData, setAnalysisData] = useState<any>(null)
     const [basePath, setBasePath] = useState<string>('')
+    const [sendingToTelegram, setSendingToTelegram] = useState(false)
+    const [telegramMessage, setTelegramMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
     // Helper to normalize path separators
     const normalizePath = (path: string) => path.replace(/\\/g, '/');
@@ -605,6 +608,55 @@ export default function ResultsDetailPage() {
                         Share
                     </button>
                     <button
+                        onClick={async () => {
+                            setSendingToTelegram(true)
+                            setTelegramMessage(null)
+
+                            try {
+                                const response = await fetch('/api/telegram/send', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ scanId: scanData.id })
+                                })
+
+                                const data = await response.json()
+
+                                if (!response.ok) {
+                                    throw new Error(data.error || 'Failed to send to Telegram')
+                                }
+
+                                setTelegramMessage({
+                                    type: 'success',
+                                    text: '✅ PDF report sent to Telegram successfully!'
+                                })
+
+                                // Auto-dismiss success message after 5 seconds
+                                setTimeout(() => setTelegramMessage(null), 5000)
+                            } catch (error: any) {
+                                setTelegramMessage({
+                                    type: 'error',
+                                    text: error.message || 'Failed to send to Telegram'
+                                })
+                            } finally {
+                                setSendingToTelegram(false)
+                            }
+                        }}
+                        disabled={sendingToTelegram}
+                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors text-sm"
+                    >
+                        {sendingToTelegram ? (
+                            <>
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                                Sending...
+                            </>
+                        ) : (
+                            <>
+                                <Send className="w-4 h-4" />
+                                Send to Telegram
+                            </>
+                        )}
+                    </button>
+                    <button
                         onClick={() => {
                             const { exportScanToPDF } = require('@/lib/pdf-export');
                             exportScanToPDF(scanData);
@@ -617,6 +669,31 @@ export default function ResultsDetailPage() {
                 </div>
             </div>
 
+            {/* Telegram Message Notification */}
+            {telegramMessage && (
+                <motion.div
+                    initial={{ opacity: 0, y: -20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -20 }}
+                    className={`p-4 rounded-lg flex items-center gap-3 ${telegramMessage.type === 'success'
+                            ? 'bg-green-500/10 border border-green-500/20 text-green-400'
+                            : 'bg-red-500/10 border border-red-500/20 text-red-400'
+                        }`}
+                >
+                    {telegramMessage.type === 'success' ? (
+                        <CheckCircle2 className="w-5 h-5" />
+                    ) : (
+                        <AlertCircle className="w-5 h-5" />
+                    )}
+                    <span>{telegramMessage.text}</span>
+                    <button
+                        onClick={() => setTelegramMessage(null)}
+                        className="ml-auto p-1 hover:bg-white/10 rounded transition-colors"
+                    >
+                        <X className="w-4 h-4" />
+                    </button>
+                </motion.div>
+            )}
             {/* Scan Log Modal */}
             {showLogModal && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">

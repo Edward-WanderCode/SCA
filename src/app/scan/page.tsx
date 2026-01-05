@@ -123,22 +123,19 @@ function ScanPageContent() {
                             setAnalysisData(data.analysis)
                         }
 
-                        if (data.scanId) {
-                            // Immediately redirect to the live results/progress page
-                            router.push(`/results/${data.scanId}`)
-                            return // Exit the loop and function as we're navigating
-                        }
-
                         if (data.result) {
-                            // Scan completed
-                            setFindings(data.result.findings || [])
-                            setLanguages(data.result.language?.split(', ') || [])
-                            setMissingPacks([])
+                            // Scan completed - wait a bit for UI to show 100%
+                            setProgress(100)
+                            setScanStage('Complete')
+                            setScanDetails('Scan finished successfully')
 
+                            // Wait for UI to update, then redirect
                             setTimeout(() => {
-                                setStep('results')
-                                setIsScanning(false)
+                                if (data.scanId) {
+                                    router.push(`/results/${data.scanId}`)
+                                }
                             }, 500)
+                            return // Exit the loop
                         }
                     }
                 }

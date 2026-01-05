@@ -66,6 +66,8 @@ export default function ResultsDetailPage() {
     const [scanStage, setScanStage] = useState('')
     const [scanDetails, setScanDetails] = useState('')
     const [analysisData, setAnalysisData] = useState<any>(null)
+    const [scannedFiles, setScannedFiles] = useState<number | undefined>(undefined)
+    const [totalFiles, setTotalFiles] = useState<number | undefined>(undefined)
     const [basePath, setBasePath] = useState<string>('')
     const [sendingToTelegram, setSendingToTelegram] = useState(false)
     const [telegramMessage, setTelegramMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
@@ -572,6 +574,11 @@ export default function ResultsDetailPage() {
                                 )}></div>
                                 <span>Progress</span>
                             </div>
+                            {totalFiles !== undefined && (
+                                <div className="text-xs text-muted-foreground mt-1">
+                                    {scannedFiles || 0} / {totalFiles} files
+                                </div>
+                            )}
                         </div>
                     </div>
 

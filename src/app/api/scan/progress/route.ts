@@ -1,4 +1,3 @@
-import { logger } from '@/lib/logger';
 import { NextResponse } from 'next/server';
 
 export async function GET(request: Request) {
@@ -15,88 +14,67 @@ export async function GET(request: Request) {
             // Heartbeat to keep connection alive
             const pingInterval = setInterval(() => {
                 try {
-                    controller.enqueue(encoder.encode(': ping\n\n'));
+                    controller.enqueue(encoder.encode(': ping\\n\\n'));
                 } catch (e) {
                     clearInterval(pingInterval);
                 }
             }, 15000);
 
-            // Send current status immediately
-            let current = logger.getScanProgress(scanId);
+            // Always check database for current progress
+            try {
+                const { prisma } = await import('@/lib/prisma');
+                const dbScan = await prisma.scan.findUnique({
+                    where: { id: scanId }
+                });
 
-            // If not in memory, check database
-            if (!current) {
-                try {
-                    const { prisma } = await import('@/lib/prisma');
-                    const dbScan = await prisma.scan.findUnique({
-                        where: { id: scanId }
-                    });
-
-                    if (dbScan) {
-                        if (dbScan.status === 'completed') {
-                            // Already finished, tell client to finish
-                            controller.enqueue(encoder.encode(`data: ${JSON.stringify({
-                                scanId,
-                                progress: 100,
-                                stage: 'Complete',
-                                details: 'Scan finished successfully',
-                            })}\n\n`));
-                            clearInterval(pingInterval);
-                            controller.close();
-                            return;
-                        } else if (dbScan.status === 'failed') {
-                            // Failed scan
-                            controller.enqueue(encoder.encode(`data: ${JSON.stringify({
-                                scanId,
-                                progress: 0,
-                                error: dbScan.lastDetails || 'Scan failed',
-                            })}\n\n`));
-                            clearInterval(pingInterval);
-                            controller.close();
-                            return;
-                        } else if (dbScan.status === 'running') {
-                            // Send current progress from database
-                            current = {
-                                scanId,
-                                progress: dbScan.lastProgress,
-                                stage: dbScan.lastStage,
-                                details: dbScan.lastDetails,
-                            };
-                        }
-                    } else {
-                        // Scan not found
+                if (dbScan) {
+                    if (dbScan.status === 'completed') {
                         controller.enqueue(encoder.encode(`data: ${JSON.stringify({
                             scanId,
-                            progress: 0,
-                            error: 'Scan not found',
-                        })}\n\n`));
+                            progress: 100,
+                            stage: 'Complete',
+                            details: 'Scan finished successfully',
+                        })}\\n\\n`));
                         clearInterval(pingInterval);
                         controller.close();
                         return;
+                    } else if (dbScan.status === 'failed') {
+                        controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                            scanId,
+                            progress: 0,
+                            error: dbScan.lastDetails || 'Scan failed',
+                        })}\\n\\n`));
+                        clearInterval(pingInterval);
+                        controller.close();
+                        return;
+                    } else {
+                        // Send current progress from database
+                        const current = {
+                            scanId,
+                            progress: dbScan.lastProgress,
+                            stage: dbScan.lastStage,
+                            details: dbScan.lastDetails,
+                        };
+                        console.log(`[SSE] Sending initial state for ${scanId}: ${current.progress}%, Stage: ${current.stage}`);
+                        controller.enqueue(encoder.encode(`data: ${JSON.stringify(current)}\\n\\n`));
                     }
-                } catch (dbError) {
-                    console.error('[SSE] DB check failed:', dbError);
+                } else {
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                        scanId,
+                        progress: 0,
+                        error: 'Scan not found',
+                    })}\\n\\n`));
+                    clearInterval(pingInterval);
+                    controller.close();
+                    return;
                 }
-            }
-
-            console.log(`[SSE] Connection for scanId: ${scanId}. Found in logger: ${!!current}`);
-
-            if (current) {
-                console.log(`[SSE] Sending initial state for ${scanId}: ${current.progress}%, Stage: ${current.stage}`);
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify(current)}\n\n`));
-            } else {
-                console.log(`[SSE] No initial state found for ${scanId} yet.`);
-                // Send an initial "waiting" state
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({
-                    scanId,
-                    progress: 0,
-                    stage: 'Connecting...',
-                    details: 'Establishing link to scan engine'
-                })}\n\n`));
+            } catch (dbError) {
+                console.error('[SSE] DB check failed:', dbError);
             }
 
             // Poll database for updates every 1 second
-            const pollInterval = setInterval(async () => {
+            let pollInterval: NodeJS.Timeout | null = null;
+            pollInterval = setInterval(async () => {
                 try {
                     const { prisma } = await import('@/lib/prisma');
                     const dbScan = await prisma.scan.findUnique({
@@ -109,53 +87,53 @@ export async function GET(request: Request) {
                             progress: dbScan.lastProgress,
                             stage: dbScan.lastStage,
                             details: dbScan.lastDetails,
+                            scannedFiles: dbScan.filesScanned,
+                            totalFiles: dbScan.filesScanned,
                         };
 
-                        controller.enqueue(encoder.encode(`data: ${JSON.stringify(update)}\n\n`));
+                        try {
+                            controller.enqueue(encoder.encode(`data: ${JSON.stringify(update)}\\n\\n`));
+                        } catch (enqueueError) {
+                            // Controller closed, stop polling
+                            if (pollInterval) clearInterval(pollInterval);
+                            return;
+                        }
 
                         if (dbScan.status === 'completed' || dbScan.status === 'failed') {
-                            clearInterval(pollInterval);
+                            if (pollInterval) clearInterval(pollInterval);
                             clearInterval(pingInterval);
 
                             if (dbScan.status === 'completed') {
-                                controller.enqueue(encoder.encode(`data: ${JSON.stringify({
-                                    scanId,
-                                    progress: 100,
-                                    stage: 'Complete',
-                                    details: 'Scan finished successfully'
-                                })}\n\n`));
+                                try {
+                                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                                        scanId,
+                                        progress: 100,
+                                        stage: 'Complete',
+                                        details: 'Scan finished successfully'
+                                    })}\\n\\n`));
+                                } catch (e) {
+                                    // Controller already closed
+                                }
                             }
 
-                            controller.close();
+                            try {
+                                controller.close();
+                            } catch (e) {
+                                // Already closed
+                            }
                         }
                     }
                 } catch (err) {
                     console.error('[SSE] Polling error:', err);
+                    if (pollInterval) clearInterval(pollInterval);
                 }
             }, 1000); // Poll every 1 second
 
-
-            // Subscribe to updates
-            const unsubscribe = logger.subscribeProgress((update) => {
-                if (update.scanId === scanId) {
-                    try {
-                        controller.enqueue(encoder.encode(`data: ${JSON.stringify(update)}\n\n`));
-                        if (update.progress >= 100) {
-                            clearInterval(pingInterval);
-                            controller.close();
-                        }
-                    } catch (e) {
-                        unsubscribe();
-                        clearInterval(pingInterval);
-                    }
-                }
-            });
-
-            // Clean up on close - listener for request.signal
+            // Clean up on close
             request.signal.addEventListener('abort', () => {
                 console.log(`[SSE] Client disconnected from progress stream for ${scanId}`);
-                unsubscribe();
                 clearInterval(pingInterval);
+                if (pollInterval) clearInterval(pollInterval);
             });
         }
     });

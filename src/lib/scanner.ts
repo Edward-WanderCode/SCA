@@ -254,7 +254,13 @@ async function runTrivyScan(targetPath: string, binPath: string = 'trivy'): Prom
 async function runOpengrepWithProgress(
     binPath: string,
     args: string[],
-    progressCallback?: (update: { progress: number, stage: string, details?: string }) => void
+    progressCallback?: (update: {
+        progress: number,
+        stage: string,
+        details?: string,
+        scannedFiles?: number,
+        totalFiles?: number
+    }) => void
 ): Promise<{ stdout: string, stderr: string }> {
     return new Promise((resolve, reject) => {
         const opengrepArgsWithProgress = [...args, '--time'];
@@ -265,9 +271,6 @@ async function runOpengrepWithProgress(
         let stdout = '';
         let stderr = '';
         let totalFiles = 0;
-        let scannedFiles = 0;
-        let lastProgressUpdate = Date.now();
-        const countedFiles = new Set<string>();
 
         proc.stdout.on('data', (data) => {
             stdout += data.toString();
@@ -277,46 +280,27 @@ async function runOpengrepWithProgress(
             const output = data.toString();
             stderr += output;
 
+            // Detect total files from "Scanning N files..." pattern
             if (totalFiles === 0) {
-                const totalMatch = output.match(/Scanning\s+(\d+)\s+(?:files?|targets?)/i) ||
+                const totalMatch = output.match(/Scanning\s+(\d+)\s+files?\s+tracked by git/i) ||
+                    output.match(/Scanning\s+(\d+)\s+(?:files?|targets?)/i) ||
                     output.match(/(\d+)\s+files?\s+found/i) ||
                     output.match(/Targets:\s+(\d+)/i);
                 if (totalMatch) {
                     totalFiles = parseInt(totalMatch[1]);
-                }
-            }
+                    console.log(`[OpenGrep] Total files to scan: ${totalFiles}`);
 
-            const progressMatch = output.match(/(\d+)%\s*\|.*\|\s*(\d+)\/(\d+)/);
-            if (progressMatch) {
-                scannedFiles = parseInt(progressMatch[2]);
-                totalFiles = parseInt(progressMatch[3]);
-            } else {
-                const analyzeMatches = output.match(/(?:Analyzing|Checking|Scan)\s+([^\s\n\r"']+\.[a-z0-9]+)/gi);
-                if (analyzeMatches && totalFiles > 0) {
-                    analyzeMatches.forEach((match: string) => {
-                        const filePart = match.split(/\s+/).pop()?.replace(/^[./\\]+/, '');
-                        if (filePart && !countedFiles.has(filePart)) {
-                            countedFiles.add(filePart);
-                            if (scannedFiles < totalFiles) scannedFiles++;
-                        }
-                    });
-                }
-            }
-
-            if (totalFiles > 0) {
-                const scanProgress = Math.min(scannedFiles / totalFiles, 1);
-                const progressPercentage = 50 + (scanProgress * 20);
-
-                const now = Date.now();
-                if (now - lastProgressUpdate > 150) {
+                    // Send one-time update with total files
                     progressCallback?.({
-                        progress: Math.round(progressPercentage),
+                        progress: 50,
                         stage: 'SAST analysis in progress...',
-                        details: `Scanning file ${scannedFiles} of ${totalFiles}`
+                        details: `Analyzing ${totalFiles} files`,
+                        totalFiles: totalFiles
                     });
-                    lastProgressUpdate = now;
                 }
             }
+
+
         });
 
         proc.on('error', (error) => {
@@ -325,6 +309,17 @@ async function runOpengrepWithProgress(
         });
 
         proc.on('close', (code) => {
+            // Send final progress update with total files scanned
+            if (totalFiles > 0) {
+                progressCallback?.({
+                    progress: 90,
+                    stage: 'SAST scan complete',
+                    details: `Scanned ${totalFiles} files`,
+                    scannedFiles: totalFiles,
+                    totalFiles: totalFiles
+                });
+            }
+
             if (code === 0 || code === 1) {
                 resolve({ stdout, stderr });
             } else {

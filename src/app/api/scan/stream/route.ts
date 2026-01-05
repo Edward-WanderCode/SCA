@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server'
 import { saveScanToDatabase } from '@/lib/db-helpers'
-import { logger } from '@/lib/logger'
 import { spawn } from 'child_process'
 import path from 'path'
 
@@ -49,6 +48,9 @@ export async function POST(request: Request) {
         await saveScanToDatabase(runningScan as any)
         console.log(`[STREAM] Created scan record in database: ${scanId}`)
 
+        // Small delay to ensure DB transaction completes
+        await new Promise(resolve => setTimeout(resolve, 100));
+
         // Prepare config for background worker
         const workerConfig = {
             method,
@@ -64,21 +66,48 @@ export async function POST(request: Request) {
 
         console.log(`[STREAM] Spawning background worker for scan: ${scanId}`)
 
-        // Use tsx to run TypeScript directly, or ts-node
-        // Note: In production, you'd want to compile this to JS first
-        const worker = spawn('npx', ['tsx', workerScript, scanId, configJson], {
-            detached: true,
-            stdio: 'ignore', // Don't pipe stdio to parent
-            cwd: process.cwd(),
-        })
+        // Use tsx to run TypeScript directly
+        const fs = await import('fs');
+        const logFile = path.join(process.cwd(), 'logs', `worker-${scanId}.log`);
+        const errFile = path.join(process.cwd(), 'logs', `worker-${scanId}.err`);
 
-        // Detach the worker so it continues running after parent exits
-        worker.unref()
+        // Ensure logs directory exists
+        await fs.promises.mkdir(path.join(process.cwd(), 'logs'), { recursive: true });
+
+        // Windows: Use START command to create truly independent process
+        const isWindows = process.platform === 'win32';
+
+        let worker;
+        if (isWindows) {
+            // Create batch script for proper redirection
+            const batchContent = `@echo off\r\nnpx tsx "${workerScript}" ${scanId} "${configJson.replace(/"/g, '\\"')}" > "${logFile}" 2> "${errFile}"`;
+            const batchFile = path.join(process.cwd(), 'logs', `worker-${scanId}.bat`);
+            await fs.promises.writeFile(batchFile, batchContent);
+
+            // START /B = run in background without new window
+            worker = spawn('cmd', ['/c', 'start', '/B', batchFile], {
+                stdio: 'ignore',
+                cwd: process.cwd(),
+                detached: true,
+                windowsHide: true,
+            });
+            worker.unref();
+        } else {
+            // Unix: Use standard detached spawn
+            worker = spawn('npx', ['tsx', workerScript, scanId, configJson], {
+                stdio: ['ignore',
+                    fs.openSync(logFile, 'w'),
+                    fs.openSync(errFile, 'w')
+                ],
+                cwd: process.cwd(),
+                detached: true,
+            });
+            worker.unref();
+        }
 
         console.log(`[STREAM] Background worker spawned with PID: ${worker.pid}`)
 
-        // Send immediate response with scanId
-        logger.updateScanProgress(scanId, 5, 'Initializing scan...', 'Background worker started')
+        // Worker will update progress via database
 
         return NextResponse.json({
             success: true,

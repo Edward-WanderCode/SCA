@@ -74,6 +74,7 @@ function ScanPageContent() {
         setScanDetails('')
 
         try {
+            // Start the background scan
             const response = await fetch('/api/scan/stream', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -86,61 +87,18 @@ function ScanPageContent() {
                 })
             })
 
-            if (!response.body) {
-                throw new Error('No response body')
+            const data = await response.json()
+
+            if (!data.success) {
+                throw new Error(data.error || 'Failed to start scan')
             }
 
-            const reader = response.body.getReader()
-            const decoder = new TextDecoder()
+            const scanId = data.scanId
+            console.log(`[Scan] Background worker started: ${scanId}`)
 
-            while (true) {
-                const { done, value } = await reader.read()
-                if (done) break
+            // Navigate to results page immediately to watch progress
+            router.push(`/results/${scanId}`)
 
-                const chunk = decoder.decode(value)
-                const lines = chunk.split('\n')
-
-                for (const line of lines) {
-                    if (line.startsWith('data: ')) {
-                        const data = JSON.parse(line.slice(6))
-
-                        if (data.error) {
-                            throw new Error(data.error)
-                        }
-
-                        if (data.progress !== undefined) {
-                            setProgress(data.progress)
-                        }
-
-                        if (data.stage) {
-                            setScanStage(data.stage)
-                        }
-
-                        if (data.details) {
-                            setScanDetails(data.details)
-                        }
-
-                        if (data.analysis) {
-                            setAnalysisData(data.analysis)
-                        }
-
-                        if (data.result) {
-                            // Scan completed - wait a bit for UI to show 100%
-                            setProgress(100)
-                            setScanStage('Complete')
-                            setScanDetails('Scan finished successfully')
-
-                            // Wait for UI to update, then redirect
-                            setTimeout(() => {
-                                if (data.scanId) {
-                                    router.push(`/results/${data.scanId}`)
-                                }
-                            }, 500)
-                            return // Exit the loop
-                        }
-                    }
-                }
-            }
         } catch (error: any) {
             // Ignore abort errors from the browser refreshing/navigating
             if (error.name === 'AbortError' || error.message?.includes('aborted') || error.message?.includes('network error')) {

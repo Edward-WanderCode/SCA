@@ -290,6 +290,14 @@ export default function ResultsDetailPage() {
                 if (data.details) setScanDetails(data.details);
                 if (data.analysis) setAnalysisData(data.analysis);
 
+                if (data.error) {
+                    setScanDetails(`Error: ${data.error}`);
+                    setScanStage('Scan Interrupted');
+                    eventSource.close();
+                    setIsScanning(false);
+                    return;
+                }
+
                 if (data.progress >= 100) {
                     eventSource.close();
                     setIsScanning(false);
@@ -551,15 +559,43 @@ export default function ResultsDetailPage() {
                             </div>
                         </div>
                         <div className="text-right">
-                            <div className="text-3xl font-mono font-bold text-indigo-500">
+                            <div className={cn(
+                                "text-3xl font-mono font-bold",
+                                scanStage === 'Scan Interrupted' ? 'text-red-500' : 'text-indigo-500'
+                            )}>
                                 {Math.round(progress)}%
                             </div>
                             <div className="text-xs text-muted-foreground uppercase tracking-widest flex items-center justify-end gap-1.5">
-                                <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse"></div>
+                                <div className={cn(
+                                    "w-1.5 h-1.5 rounded-full animate-pulse",
+                                    scanStage === 'Scan Interrupted' ? 'bg-red-500' : 'bg-indigo-500'
+                                )}></div>
                                 <span>Progress</span>
                             </div>
                         </div>
                     </div>
+
+                    {scanStage === 'Scan Interrupted' && (
+                        <div className="bg-red-500/10 border border-red-500/20 p-6 rounded-xl flex flex-col items-center gap-4 text-center">
+                            <AlertCircle className="w-8 h-8 text-red-500" />
+                            <div>
+                                <h3 className="text-lg font-bold text-red-400">Scan has been interrupted</h3>
+                                <p className="text-sm text-muted-foreground mt-1">
+                                    The active connection was lost. This usually happens if the page is refreshed during a long scan.
+                                </p>
+                            </div>
+                            <button
+                                onClick={() => {
+                                    const method = scanData.source.type;
+                                    const path = scanData.source.path || scanData.source.url;
+                                    window.location.href = `/scan?method=${method}&path=${encodeURIComponent(path)}&compareWithId=${scanData.comparedWithId || ''}`;
+                                }}
+                                className="px-6 py-2 bg-red-600 hover:bg-red-500 text-white font-bold rounded-lg transition-colors"
+                            >
+                                Start New Scan
+                            </button>
+                        </div>
+                    )}
 
                     {/* Detailed Analysis Table (Terminal Style) */}
                     {analysisData && (

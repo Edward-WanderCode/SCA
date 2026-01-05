@@ -51,6 +51,11 @@ model Scan {
   isRescan Boolean @default(false)
   comparedWithId String?
   
+  // Progress tracking (for background scans)
+  lastProgress Int @default(0)
+  lastStage String @default("")
+  lastDetails String @default("")
+  
   // Relationships
   findings Finding[]
   

@@ -14,7 +14,7 @@ export async function GET(request: Request) {
             // Heartbeat to keep connection alive
             const pingInterval = setInterval(() => {
                 try {
-                    controller.enqueue(encoder.encode(': ping\\n\\n'));
+                    controller.enqueue(encoder.encode(': ping\n\n'));
                 } catch (e) {
                     clearInterval(pingInterval);
                 }
@@ -34,7 +34,7 @@ export async function GET(request: Request) {
                             progress: 100,
                             stage: 'Complete',
                             details: 'Scan finished successfully',
-                        })}\\n\\n`));
+                        })}\n\n`));
                         clearInterval(pingInterval);
                         controller.close();
                         return;
@@ -43,7 +43,7 @@ export async function GET(request: Request) {
                             scanId,
                             progress: 0,
                             error: dbScan.lastDetails || 'Scan failed',
-                        })}\\n\\n`));
+                        })}\n\n`));
                         clearInterval(pingInterval);
                         controller.close();
                         return;
@@ -56,14 +56,14 @@ export async function GET(request: Request) {
                             details: dbScan.lastDetails,
                         };
                         console.log(`[SSE] Sending initial state for ${scanId}: ${current.progress}%, Stage: ${current.stage}`);
-                        controller.enqueue(encoder.encode(`data: ${JSON.stringify(current)}\\n\\n`));
+                        controller.enqueue(encoder.encode(`data: ${JSON.stringify(current)}\n\n`));
                     }
                 } else {
                     controller.enqueue(encoder.encode(`data: ${JSON.stringify({
                         scanId,
                         progress: 0,
                         error: 'Scan not found',
-                    })}\\n\\n`));
+                    })}\n\n`));
                     clearInterval(pingInterval);
                     controller.close();
                     return;
@@ -92,7 +92,7 @@ export async function GET(request: Request) {
                         };
 
                         try {
-                            controller.enqueue(encoder.encode(`data: ${JSON.stringify(update)}\\n\\n`));
+                            controller.enqueue(encoder.encode(`data: ${JSON.stringify(update)}\n\n`));
                         } catch (enqueueError) {
                             // Controller closed, stop polling
                             if (pollInterval) clearInterval(pollInterval);
@@ -110,7 +110,7 @@ export async function GET(request: Request) {
                                         progress: 100,
                                         stage: 'Complete',
                                         details: 'Scan finished successfully'
-                                    })}\\n\\n`));
+                                    })}\n\n`));
                                 } catch (e) {
                                     // Controller already closed
                                 }

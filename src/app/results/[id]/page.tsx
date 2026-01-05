@@ -220,6 +220,12 @@ export default function ResultsDetailPage() {
                     } else {
                         setIsScanning(false)
                     }
+
+                    // Also update progress and stage if it's currently running
+                    if (scan.lastProgress !== undefined) setProgress(scan.lastProgress);
+                    if (scan.lastStage) setScanStage(scan.lastStage);
+                    if (scan.lastDetails) setScanDetails(scan.lastDetails);
+                    if (scan.filesScanned !== undefined) setScannedFiles(scan.filesScanned);
                 } else if (scanId.startsWith('scan-')) {
                     // Fallback: If not in history yet but has scanId prefix, it might be just starting
                     setIsScanning(true)

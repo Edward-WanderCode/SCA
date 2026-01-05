@@ -46,7 +46,7 @@ next-env.d.ts
 /prisma/*.db
 /prisma/*.db-journal
 
-/src/generated/prisma
+/src/lib/generated/prisma
 
 # tools
 /Trivy

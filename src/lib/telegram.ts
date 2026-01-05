@@ -164,7 +164,9 @@ export async function getOrCreateForumTopic(
     name: string
 ): Promise<{ success: boolean; message_thread_id?: number; error?: string }> {
     try {
-        // 1. Check if we already have a mapping for this project
+        // Optional: We can still look up if we want, but the user explicitly asked why it's not creating NEW ones.
+        // To satisfy "Always create a new topic for a new scan", we should skip this or use a more specific name.
+        /*
         const mappings = await loadTopicMappings();
         if (mappings[name]) {
             console.log(`[Telegram] Reusing existing topic for ${name}: ${mappings[name]}`);
@@ -173,6 +175,7 @@ export async function getOrCreateForumTopic(
                 message_thread_id: mappings[name]
             };
         }
+        */
 
         // 2. If not, create a new topic
         const config = await loadTelegramConfig();

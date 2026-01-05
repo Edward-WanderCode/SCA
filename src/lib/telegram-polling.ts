@@ -37,13 +37,23 @@ async function handleTelegramUpdate(update: any) {
             state.processedUpdateIds.delete(firstValue);
         }
 
+        const config = await loadTelegramConfig();
+        if (!config?.botToken) return;
+
         if (update.callback_query) {
             const cb = update.callback_query;
-            const config = await loadTelegramConfig();
-            if (!config?.botToken) return;
+            const chatId = cb.message.chat.id;
+
             await answerCallbackQuery(cb.id, config.botToken);
+
             if (cb.data.startsWith('status_')) {
-                await handleStatusCommand(cb.data.replace('status_', ''), cb.message.chat.id, config.botToken);
+                await handleStatusCommand(cb.data.replace('status_', ''), chatId, config.botToken);
+            } else if (cb.data === 'cmd_list') {
+                await handleListScanCommand(chatId, config.botToken);
+            } else if (cb.data === 'cmd_help') {
+                await handleHelpCommand(chatId, config.botToken);
+            } else if (cb.data === 'cmd_scan_info') {
+                await sendTelegramMessage(chatId, config.botToken, "🚀 <b>How to scan:</b>\n\nSend the <code>/scan</code> command followed by the repository URL.\n\nExample:\n<code>/scan https://github.com/user/repo.git</code>");
             }
             return;
         }
@@ -56,9 +66,6 @@ async function handleTelegramUpdate(update: any) {
         const username = msg.from?.username || msg.from?.first_name || 'User';
 
         console.log(`[PID:${PID}] Received: ${text}`);
-
-        const config = await loadTelegramConfig();
-        if (!config?.botToken) return;
 
         if (text.startsWith('/')) {
             await handleCommand(text, chatId, config.botToken, username);
@@ -78,6 +85,39 @@ async function answerCallbackQuery(id: string, token: string) {
     } catch (e) { }
 }
 
+async function handleHelpCommand(chatId: number | string, token: string) {
+    const keyboard = [
+        [{ text: '📊 Start New Scan', callback_data: 'cmd_scan_info' }],
+        [{ text: '📋 View Recent Scans', callback_data: 'cmd_list' }],
+        [{ text: '❓ Command Guide', callback_data: 'cmd_help' }]
+    ];
+
+    await sendTelegramMessageWithKeyboard(chatId, token, `👋 <b>SCA Platform Bot</b>
+
+Welcome to the Security Code Analysis assistant. Use the buttons below or type commands directly.
+
+📊 <b>/scan</b> - Start a new analysis
+📋 <b>/listscan</b> - Show latest reports
+🔍 <b>/status</b> - Track progress
+📋 <b>/help</b> - Show this message`, keyboard);
+}
+
+async function handleListScanCommand(chatId: number | string, token: string) {
+    try {
+        const { getRecentScans } = await import('./db-helpers');
+        const scans = await getRecentScans(10);
+        if (scans.length === 0) {
+            await sendTelegramMessage(chatId, token, '📋 Chưa có lượt quét nào.');
+            return;
+        }
+        const keyboard = scans.map((s: any) => [{
+            text: `${s.status === 'completed' ? '✅' : '⏳'} ${s.sourceName}`,
+            callback_data: `status_${s.id}`
+        }]);
+        await sendTelegramMessageWithKeyboard(chatId, token, '📋 <b>Danh sách quét gần đây:</b>', keyboard);
+    } catch (e) { }
+}
+
 async function handleStatusCommand(scanId: string, chatId: number | string, token: string) {
     try {
         const scanData = await getScanById(scanId);
@@ -87,7 +127,7 @@ async function handleStatusCommand(scanId: string, chatId: number | string, toke
         }
 
         const status = scanData.status || 'unknown';
-        const projectName = scanData.sourceName || scanData.source?.name || 'Unknown';
+        const projectName = scanData.source?.name || 'Unknown';
         const timestamp = new Date(scanData.timestamp).toLocaleString();
 
         let emoji = status === 'completed' ? '✅' : (status === 'running' ? '🔄' : '❌');
@@ -117,28 +157,11 @@ async function handleCommand(text: string, chatId: number | string, token: strin
     switch (command) {
         case '/start':
         case '/help':
-            await sendTelegramMessage(chatId, token, `👋 <b>SCA Platform Bot</b>
-
-📊 <code>/scan &lt;url&gt;</code> - Quét Repo
-📋 <code>/listscan</code> - Xem danh sách
-🔍 <code>/status &lt;id&gt;</code> - Kiểm tra status
-📋 <code>/help</code> - Hướng dẫn`);
+            await handleHelpCommand(chatId, token);
             break;
 
         case '/listscan':
-            try {
-                const { getRecentScans } = await import('./db-helpers');
-                const scans = await getRecentScans(10);
-                if (scans.length === 0) {
-                    await sendTelegramMessage(chatId, token, '📋 Chưa có lượt quét nào.');
-                    return;
-                }
-                const keyboard = scans.map((s: any) => [{
-                    text: `${s.status === 'completed' ? '✅' : '⏳'} ${s.sourceName}`,
-                    callback_data: `status_${s.id}`
-                }]);
-                await sendTelegramMessageWithKeyboard(chatId, token, '📋 <b>Danh sách quét gần đây:</b>', keyboard);
-            } catch (e) { }
+            await handleListScanCommand(chatId, token);
             break;
 
         case '/scan':

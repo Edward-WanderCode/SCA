@@ -85,6 +85,7 @@ async function main() {
     let messageThreadId: number | undefined;
     let targetChatId: string | number | undefined;
     let projectName = '';
+    let scanCompleted = false;
 
     try {
         // Get initial scan data to extract project name
@@ -238,6 +239,7 @@ ${config.metadata?.triggeredBy ? `👤 Được kích hoạt bởi: <b>${config.
             },
         });
 
+
         // Save findings
         for (const finding of findings) {
             await prisma.finding.create({
@@ -260,10 +262,8 @@ ${config.metadata?.triggeredBy ? `👤 Được kích hoạt bởi: <b>${config.
             });
         }
 
-        // Cleanup temporary files
-        if (isTemp) {
-            await cleanupTemp(targetPath);
-        }
+        // Mark scan as completed successfully
+        scanCompleted = true;
 
         // Auto-send to Telegram if enabled
         try {
@@ -362,16 +362,57 @@ ${config.metadata?.triggeredBy ? `👤 Được kích hoạt bởi: <b>${config.
 
                         console.log(`[Worker] Sending PDF to topic ${messageThreadId} in chat ${finalChatId}`);
 
+                        const keyboard = {
+                            inline_keyboard: [
+                                [
+                                    { text: '🔄 Rescan', callback_data: `rescan_${scanData.id}` },
+                                    { text: '🗑️ Delete Topic', callback_data: `delete_${scanData.id}` }
+                                ]
+                            ]
+                        };
+
+                        // Unpin all old messages in this chat before sending new report
+                        // This ensures only the latest report is pinned
+                        try {
+                            const { unpinAllChatMessages } = await import('./telegram');
+                            await unpinAllChatMessages(finalChatId);
+                            console.log('[Worker] Unpinned old messages');
+                        } catch (unpinError) {
+                            console.warn('[Worker] Failed to unpin old messages (non-critical):', unpinError);
+                        }
+
                         const telegramResult = await sendPdfToTelegram(
                             buffer,
                             filename,
                             caption,
                             messageThreadId,
-                            finalChatId
+                            finalChatId,
+                            keyboard
                         );
 
                         if (telegramResult.success) {
                             console.log('[Worker] ✅ PDF report sent to Telegram successfully');
+
+                            // Pin the new report message
+                            if (telegramResult.messageId) {
+                                try {
+                                    const { pinChatMessage } = await import('./telegram');
+                                    const pinResult = await pinChatMessage(
+                                        finalChatId,
+                                        telegramResult.messageId,
+                                        messageThreadId,
+                                        true // disable notification
+                                    );
+
+                                    if (pinResult.success) {
+                                        console.log('[Worker] 📌 Report pinned successfully');
+                                    } else {
+                                        console.warn('[Worker] Failed to pin report:', pinResult.error);
+                                    }
+                                } catch (pinError) {
+                                    console.warn('[Worker] Pin error (non-critical):', pinError);
+                                }
+                            }
                         } else {
                             console.warn('[Worker] ⚠️ Failed to send to Telegram:', telegramResult.error);
                         }
@@ -402,7 +443,6 @@ ${config.metadata?.triggeredBy ? `👤 Được kích hoạt bởi: <b>${config.
             console.warn('[Worker] Cleanup error:', cleanupError);
         }
 
-        process.exit(0);
     } catch (error: any) {
         console.error('[Worker] Scan failed:', error);
 
@@ -417,13 +457,21 @@ ${config.metadata?.triggeredBy ? `👤 Được kích hoạt bởi: <b>${config.
                 logs: `Error: ${error.message}\n${error.stack || ''}`,
             },
         });
-
-        // Cleanup if needed
+    } finally {
+        // ALWAYS cleanup temp directory if it was created
         if (isTemp && targetPath) {
-            await cleanupTemp(targetPath);
+            console.log(`[Worker] Cleaning up temporary directory: ${targetPath}`);
+            try {
+                await cleanupTemp(targetPath);
+                console.log(`[Worker] ✅ Cleanup completed for: ${targetPath}`);
+            } catch (cleanupError) {
+                console.error(`[Worker] ❌ Failed to cleanup temp directory ${targetPath}:`, cleanupError);
+                // Even if cleanup fails, we should exit gracefully
+            }
         }
 
-        process.exit(1);
+        // Exit with appropriate code
+        process.exit(scanCompleted ? 0 : 1);
     }
 }
 

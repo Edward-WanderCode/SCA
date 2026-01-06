@@ -435,11 +435,6 @@ export async function runScan(
             logs += `[Incremental] Full scan mode.\n`;
         }
 
-        const localRulesPath = path.join(process.cwd(), 'OpenGrep', 'rules');
-
-        // Decide early whether to use online or local rules (needed for analysis section)
-        const forceOnline = process.env.OPENGREP_USE_LOCAL_RULES !== 'true';
-
         const analysisData: any = {
             files: scannedFiles,
             rules: 0,
@@ -447,49 +442,16 @@ export async function runScan(
             origins: [] as { name: string, rules: number }[]
         };
 
-        const RULE_DIR_MAP: Record<string, string> = {
-            'C#': 'csharp', 'C/C++': 'c', 'JavaScript': 'javascript', 'TypeScript': 'typescript',
-            'Python': 'python', 'Go': 'go', 'Java': 'java', 'Ruby': 'ruby', 'Rust': 'rust',
-            'PHP': 'php', 'Terraform': 'terraform', 'Dockerfile': 'docker'
-        };
-
-        const countRulesInDir = async (dir: string): Promise<number> => {
-            let count = 0;
-            try {
-                const entries = await fs.readdir(dir, { withFileTypes: true });
-                for (const entry of entries) {
-                    const fullPath = path.join(dir, entry.name);
-                    if (entry.isDirectory()) count += await countRulesInDir(fullPath);
-                    else if (entry.isFile() && (entry.name.endsWith('.yaml') || entry.name.endsWith('.yml'))) count++;
-                }
-            } catch { return 0; }
-            return count;
-        };
-
         for (const lang of detectedLanguages) {
-            let ruleCount = 0;
-
-            // When using online mode, use estimated rule counts (faster, no file system access)
-            // When using local rules, count actual files
-            if (forceOnline) {
-                // Estimated rule counts from Semgrep Registry
-                ruleCount = lang === 'TypeScript' ? 215 :
-                    lang === 'Python' ? 711 :
-                        lang === 'JavaScript' ? 358 :
-                            lang === 'Java' ? 450 :
-                                lang === 'Go' ? 180 :
-                                    lang === 'PHP' ? 120 :
-                                        lang === 'Ruby' ? 95 :
-                                            50;
-            } else {
-                // Count local rules if using offline mode
-                const folderName = RULE_DIR_MAP[lang] || lang.toLowerCase();
-                const langDir = path.join(localRulesPath, folderName);
-                ruleCount = await countRulesInDir(langDir);
-                if (ruleCount === 0) {
-                    ruleCount = 50; // Fallback
-                }
-            }
+            // Estimated rule counts from Semgrep Registry for reference
+            const ruleCount = lang === 'TypeScript' ? 215 :
+                lang === 'Python' ? 711 :
+                    lang === 'JavaScript' ? 358 :
+                        lang === 'Java' ? 450 :
+                            lang === 'Go' ? 180 :
+                                lang === 'PHP' ? 120 :
+                                    lang === 'Ruby' ? 95 :
+                                        50;
 
             analysisData.languages.push({
                 name: lang, rules: ruleCount, files: languageCounts.get(lang) || 0
@@ -497,7 +459,7 @@ export async function runScan(
             analysisData.rules += ruleCount;
         }
 
-        analysisData.origins.push({ name: 'Custom (Local)', rules: analysisData.rules });
+        analysisData.origins.push({ name: 'Semgrep Registry (Online)', rules: analysisData.rules });
 
         progressCallback?.({ progress: 30, stage: 'Calculating file hashes...', details: 'Indexing files for performance' });
         const finalHashMap = await buildFileHashMap(targetPath, allFiles);
@@ -514,8 +476,8 @@ export async function runScan(
 
         const portableOpengrep = path.join(process.cwd(), 'OpenGrep', 'opengrep.exe');
         const portableTrivy = path.join(process.cwd(), 'Trivy', 'trivy.exe');
-        const possibleOpengrepPaths = [portableOpengrep, 'opengrep', 'E:\\Code\\SCA\\OpenGrep\\opengrep.exe'];
-        const possibleTrivyPaths = [portableTrivy, 'trivy', 'C:\\Users\\ttk28\\AppData\\Local\\Microsoft\\WinGet\\Packages\\AquaSecurity.Trivy_Microsoft.Winget.Source_8wekyb3d8bbwe\\trivy.exe'];
+        const possibleOpengrepPaths = [portableOpengrep, 'opengrep'];
+        const possibleTrivyPaths = [portableTrivy, 'trivy'];
 
         let opengrepBin = 'opengrep';
         for (const p of possibleOpengrepPaths) {
@@ -540,28 +502,13 @@ export async function runScan(
         }
 
         let rawSastFindings: OpenGrepFinding[] = [];
-        let configArg = 'auto';
+        let configArg = 'auto'; // Default to auto (online registry)
 
-        // Use the forceOnline variable declared earlier
-        if (!forceOnline) {
-            // Only check for local rules if explicitly enabled
-            try {
-                await fs.access(localRulesPath);
-                configArg = localRulesPath;
-                logs += `[Scanner] 📁 Using local rules from: ${localRulesPath}\n`;
-            } catch {
-                logs += `[Scanner] ⚠ Local rules not found, falling back to online\n`;
-            }
-        }
-
-        // Use online Semgrep Registry (default behavior)
-        if (configArg === 'auto') {
-            logs += `[Scanner] ☁️  Using Semgrep Registry (online mode)\n`;
-            if (ruleSet.includes('Security')) configArg = 'p/security-audit';
-            else if (ruleSet.includes('Compliance')) configArg = 'p/owasp-top-ten';
-            else if (ruleSet.includes('Best')) configArg = 'p/best-practices';
-            // else keep 'auto' for default registry rules
-        }
+        logs += `[Scanner] ☁️  Using Semgrep Registry (online mode)\n`;
+        if (ruleSet.includes('Security')) configArg = 'p/security-audit';
+        else if (ruleSet.includes('Compliance')) configArg = 'p/owasp-top-ten';
+        else if (ruleSet.includes('Best')) configArg = 'p/best-practices';
+        // else keep 'auto' for default registry rules
 
         progressCallback?.({ progress: 45, stage: 'Starting SAST scan...', details: isIncremental ? 'Incremental SAST scan' : 'Full SAST scan' });
 

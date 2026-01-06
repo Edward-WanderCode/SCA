@@ -243,9 +243,12 @@ export const exportScanToPDF = (scanData: ScanData) => {
 
             doc.addPage();
             severityPageMap[sev] = (doc as unknown as DocWithAutoTable).internal.getNumberOfPages();
-            drawHeader(doc, `Detailed Findings: ${sev.toUpperCase()}`);
 
             let currentY = 40;
+
+            // Get severity color for this section
+            const sevColor = COLORS.SEVERITY[sev as keyof typeof COLORS.SEVERITY] || COLORS.SURFACE_CONTAINER;
+            drawHeader(doc, `Detailed Findings: ${sev.toUpperCase()}`, sevColor as [number, number, number]);
 
             // Group by Title (Error Name) within Severity
             const groupedByTitle = sevFindings.reduce((acc: Record<string, Finding[]>, f: Finding) => {
@@ -257,13 +260,20 @@ export const exportScanToPDF = (scanData: ScanData) => {
             Object.entries(groupedByTitle).forEach(([title, issues]: [string, Finding[]]) => {
                 if (currentY > 240) {
                     doc.addPage();
-                    drawHeader(doc, `Detailed Findings: ${sev.toUpperCase()} (cont.)`);
+                    drawHeader(doc, `Detailed Findings: ${sev.toUpperCase()} (cont.)`, sevColor as [number, number, number]);
                     currentY = 40;
                 }
 
-                // Title Banner - Material Design Chip/Bar style
-                doc.setFillColor(COLORS.SURFACE_CONTAINER[0], COLORS.SURFACE_CONTAINER[1], COLORS.SURFACE_CONTAINER[2]);
+                // Title Banner - với màu severity
+                // Màu nền nhạt của severity
+                doc.setFillColor(sevColor[0] + 60, sevColor[1] + 60, sevColor[2] + 60);
+                doc.setGState(doc.GState({ opacity: 0.15 }));
                 doc.roundedRect(15, currentY, pageWidth - 30, 10, 5, 5, 'F');
+                doc.setGState(doc.GState({ opacity: 1 }));
+
+                // Viền màu bên trái của title banner
+                doc.setFillColor(sevColor[0], sevColor[1], sevColor[2]);
+                doc.roundedRect(15, currentY, 4, 10, 2, 2, 'F');
 
                 doc.setTextColor(COLORS.TEXT_MAIN[0], COLORS.TEXT_MAIN[1], COLORS.TEXT_MAIN[2]);
                 doc.setFontSize(11);
@@ -274,35 +284,46 @@ export const exportScanToPDF = (scanData: ScanData) => {
                 issues.forEach((issue: Finding) => {
                     doc.setFont('helvetica', 'bold');
                     doc.setFontSize(9);
-                    const messageLines = doc.splitTextToSize(issue.message, pageWidth - 45);
+                    const messageLines = doc.splitTextToSize(issue.message, pageWidth - 48);
                     const neededHeight = 10 + (messageLines.length * 4) + (issue.code ? 35 : 0);
 
                     if (currentY + neededHeight > 270) {
                         doc.addPage();
-                        drawHeader(doc, `Detailed Findings: ${sev.toUpperCase()} (cont.)`);
+                        drawHeader(doc, `Detailed Findings: ${sev.toUpperCase()} (cont.)`, sevColor as [number, number, number]);
                         currentY = 40;
                     }
+
+                    // Background nhẹ cho finding item
+                    const itemBgHeight = neededHeight - (issue.code ? 40 : 0);
+                    doc.setFillColor(sevColor[0] + 70, sevColor[1] + 70, sevColor[2] + 70);
+                    doc.setGState(doc.GState({ opacity: 0.08 }));
+                    doc.roundedRect(18, currentY - 2, pageWidth - 36, itemBgHeight + 2, 3, 3, 'F');
+                    doc.setGState(doc.GState({ opacity: 1 }));
+
+                    // Viền màu bên trái cho finding item
+                    doc.setFillColor(sevColor[0], sevColor[1], sevColor[2]);
+                    doc.rect(18, currentY - 2, 2, itemBgHeight + 2, 'F');
 
                     // Metadata - Stacked to avoid overlap with long file paths
                     doc.setFontSize(7);
                     doc.setTextColor(COLORS.TEXT_MUTED[0], COLORS.TEXT_MUTED[1], COLORS.TEXT_MUTED[2]);
                     doc.setFont('helvetica', 'normal');
-                    doc.text(`CATEGORY: ${issue.category.toUpperCase()}`, 20, currentY);
+                    doc.text(`CATEGORY: ${issue.category.toUpperCase()}`, 24, currentY);
                     currentY += 4;
 
                     doc.setFontSize(8);
                     doc.setFont('helvetica', 'bold');
                     doc.setTextColor(COLORS.PRIMARY[0], COLORS.PRIMARY[1], COLORS.PRIMARY[2]);
                     const fileText = `FILE: ${issue.file}:${issue.line}`;
-                    const splitFile = doc.splitTextToSize(fileText, pageWidth - 40);
-                    doc.text(splitFile, 20, currentY);
+                    const splitFile = doc.splitTextToSize(fileText, pageWidth - 48);
+                    doc.text(splitFile, 24, currentY);
 
                     const fileLinesHeight = (Array.isArray(splitFile) ? splitFile.length : 1) * 3.5;
                     currentY += fileLinesHeight + 2;
 
                     // Message
                     doc.setTextColor(COLORS.TEXT_MAIN[0], COLORS.TEXT_MAIN[1], COLORS.TEXT_MAIN[2]);
-                    doc.text(messageLines, 20, currentY);
+                    doc.text(messageLines, 24, currentY);
                     currentY += (messageLines.length * 4) + 4;
 
                     // Code snippets - Clean Material Design 3 style
@@ -321,7 +342,7 @@ export const exportScanToPDF = (scanData: ScanData) => {
 
                         if (currentY + boxHeight > 275) {
                             doc.addPage();
-                            drawHeader(doc, `Detailed Findings: ${sev.toUpperCase()} (cont.)`);
+                            drawHeader(doc, `Detailed Findings: ${sev.toUpperCase()} (cont.)`, sevColor as [number, number, number]);
                             currentY = 40;
                         }
 
@@ -389,11 +410,12 @@ export const exportScanToPDF = (scanData: ScanData) => {
     }
 }
 
-function drawHeader(doc: jsPDF, title: string) {
+function drawHeader(doc: jsPDF, title: string, severityColor?: [number, number, number]) {
     const pageWidth = doc.internal.pageSize.getWidth();
 
-    // Header Bar
-    doc.setFillColor(COLORS.PRIMARY[0], COLORS.PRIMARY[1], COLORS.PRIMARY[2]);
+    // Header Bar - sử dụng severity color nếu có, ngược lại dùng PRIMARY
+    const headerColor = severityColor || COLORS.PRIMARY;
+    doc.setFillColor(headerColor[0], headerColor[1], headerColor[2]);
     doc.rect(0, 0, pageWidth, 25, 'F');
 
     // Header Title
@@ -594,9 +616,12 @@ export const generateScanPdfBuffer = (scanData: ScanData): { buffer: Buffer; fil
 
             doc.addPage();
             severityPageMap[sev] = (doc as unknown as DocWithAutoTable).internal.getNumberOfPages();
-            drawHeader(doc, `Detailed Findings: ${sev.toUpperCase()}`);
 
             let currentY = 40;
+
+            // Get severity color for this section
+            const sevColor = COLORS.SEVERITY[sev as keyof typeof COLORS.SEVERITY] || COLORS.SURFACE_CONTAINER;
+            drawHeader(doc, `Detailed Findings: ${sev.toUpperCase()}`, sevColor as [number, number, number]);
 
             const groupedByTitle = sevFindings.reduce((acc: Record<string, Finding[]>, f: Finding) => {
                 if (!acc[f.title]) acc[f.title] = [];
@@ -607,12 +632,20 @@ export const generateScanPdfBuffer = (scanData: ScanData): { buffer: Buffer; fil
             Object.entries(groupedByTitle).forEach(([title, issues]: [string, Finding[]]) => {
                 if (currentY > 240) {
                     doc.addPage();
-                    drawHeader(doc, `Detailed Findings: ${sev.toUpperCase()} (cont.)`);
+                    drawHeader(doc, `Detailed Findings: ${sev.toUpperCase()} (cont.)`, sevColor as [number, number, number]);
                     currentY = 40;
                 }
 
-                doc.setFillColor(COLORS.SURFACE_CONTAINER[0], COLORS.SURFACE_CONTAINER[1], COLORS.SURFACE_CONTAINER[2]);
+                // Title Banner - với màu severity
+                // Màu nền nhạt của severity
+                doc.setFillColor(sevColor[0] + 60, sevColor[1] + 60, sevColor[2] + 60);
+                doc.setGState(doc.GState({ opacity: 0.15 }));
                 doc.roundedRect(15, currentY, pageWidth - 30, 10, 5, 5, 'F');
+                doc.setGState(doc.GState({ opacity: 1 }));
+
+                // Viền màu bên trái của title banner
+                doc.setFillColor(sevColor[0], sevColor[1], sevColor[2]);
+                doc.roundedRect(15, currentY, 4, 10, 2, 2, 'F');
 
                 doc.setTextColor(COLORS.TEXT_MAIN[0], COLORS.TEXT_MAIN[1], COLORS.TEXT_MAIN[2]);
                 doc.setFontSize(11);
@@ -623,33 +656,44 @@ export const generateScanPdfBuffer = (scanData: ScanData): { buffer: Buffer; fil
                 issues.forEach((issue: Finding) => {
                     doc.setFont('helvetica', 'bold');
                     doc.setFontSize(9);
-                    const messageLines = doc.splitTextToSize(issue.message, pageWidth - 45);
+                    const messageLines = doc.splitTextToSize(issue.message, pageWidth - 48);
                     const neededHeight = 10 + (messageLines.length * 4) + (issue.code ? 35 : 0);
 
                     if (currentY + neededHeight > 270) {
                         doc.addPage();
-                        drawHeader(doc, `Detailed Findings: ${sev.toUpperCase()} (cont.)`);
+                        drawHeader(doc, `Detailed Findings: ${sev.toUpperCase()} (cont.)`, sevColor as [number, number, number]);
                         currentY = 40;
                     }
+
+                    // Background nhẹ cho finding item
+                    const itemBgHeight = neededHeight - (issue.code ? 40 : 0);
+                    doc.setFillColor(sevColor[0] + 70, sevColor[1] + 70, sevColor[2] + 70);
+                    doc.setGState(doc.GState({ opacity: 0.08 }));
+                    doc.roundedRect(18, currentY - 2, pageWidth - 36, itemBgHeight + 2, 3, 3, 'F');
+                    doc.setGState(doc.GState({ opacity: 1 }));
+
+                    // Viền màu bên trái cho finding item
+                    doc.setFillColor(sevColor[0], sevColor[1], sevColor[2]);
+                    doc.rect(18, currentY - 2, 2, itemBgHeight + 2, 'F');
 
                     doc.setFontSize(7);
                     doc.setTextColor(COLORS.TEXT_MUTED[0], COLORS.TEXT_MUTED[1], COLORS.TEXT_MUTED[2]);
                     doc.setFont('helvetica', 'normal');
-                    doc.text(`CATEGORY: ${issue.category.toUpperCase()}`, 20, currentY);
+                    doc.text(`CATEGORY: ${issue.category.toUpperCase()}`, 24, currentY);
                     currentY += 4;
 
                     doc.setFontSize(8);
                     doc.setFont('helvetica', 'bold');
                     doc.setTextColor(COLORS.PRIMARY[0], COLORS.PRIMARY[1], COLORS.PRIMARY[2]);
                     const fileText = `FILE: ${issue.file}:${issue.line}`;
-                    const splitFile = doc.splitTextToSize(fileText, pageWidth - 40);
-                    doc.text(splitFile, 20, currentY);
+                    const splitFile = doc.splitTextToSize(fileText, pageWidth - 48);
+                    doc.text(splitFile, 24, currentY);
 
                     const fileLinesHeight = (Array.isArray(splitFile) ? splitFile.length : 1) * 3.5;
                     currentY += fileLinesHeight + 2;
 
                     doc.setTextColor(COLORS.TEXT_MAIN[0], COLORS.TEXT_MAIN[1], COLORS.TEXT_MAIN[2]);
-                    doc.text(messageLines, 20, currentY);
+                    doc.text(messageLines, 24, currentY);
                     currentY += (messageLines.length * 4) + 4;
 
                     if (issue.code) {
@@ -666,7 +710,7 @@ export const generateScanPdfBuffer = (scanData: ScanData): { buffer: Buffer; fil
 
                         if (currentY + boxHeight > 275) {
                             doc.addPage();
-                            drawHeader(doc, `Detailed Findings: ${sev.toUpperCase()} (cont.)`);
+                            drawHeader(doc, `Detailed Findings: ${sev.toUpperCase()} (cont.)`, sevColor as [number, number, number]);
                             currentY = 40;
                         }
 

@@ -44,8 +44,9 @@ export async function sendPdfToTelegram(
     fileName: string,
     caption: string,
     messageThreadId?: number,
-    chatIdOverride?: string | number
-): Promise<{ success: boolean; error?: string }> {
+    chatIdOverride?: string | number,
+    replyMarkup?: any
+): Promise<{ success: boolean; error?: string; messageId?: number }> {
     try {
         const config = await loadTelegramConfig();
 
@@ -70,6 +71,9 @@ export async function sendPdfToTelegram(
         if (messageThreadId) {
             formData.append('message_thread_id', messageThreadId.toString());
         }
+        if (replyMarkup) {
+            formData.append('reply_markup', JSON.stringify(replyMarkup));
+        }
 
         const url = `https://api.telegram.org/bot${config.botToken}/sendDocument`;
 
@@ -87,7 +91,10 @@ export async function sendPdfToTelegram(
             };
         }
 
-        return { success: true };
+        return {
+            success: true,
+            messageId: result.result?.message_id
+        };
     } catch (error) {
         return {
             success: false,
@@ -180,6 +187,155 @@ export async function testTelegramConnection(
             return {
                 success: false,
                 error: result.description || 'Failed to connect to Telegram',
+            };
+        }
+
+        return { success: true };
+    } catch (error) {
+        return {
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error',
+        };
+    }
+}
+
+/**
+ * Pin a message in a chat or topic
+ */
+export async function pinChatMessage(
+    chatId: string | number,
+    messageId: number,
+    messageThreadId?: number,
+    disableNotification: boolean = true
+): Promise<{ success: boolean; error?: string }> {
+    try {
+        const config = await loadTelegramConfig();
+
+        if (!config?.botToken) {
+            return { success: false, error: 'Telegram configuration is incomplete' };
+        }
+
+        const url = `https://api.telegram.org/bot${config.botToken}/pinChatMessage`;
+
+        const body: any = {
+            chat_id: chatId,
+            message_id: messageId,
+            disable_notification: disableNotification,
+        };
+
+        // Note: message_thread_id is NOT supported in pinChatMessage
+        // Pinning works at chat level, not topic level
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(body),
+        });
+
+        const result = await response.json();
+
+        if (!response.ok || !result.ok) {
+            return {
+                success: false,
+                error: result.description || 'Failed to pin message',
+            };
+        }
+
+        return { success: true };
+    } catch (error) {
+        return {
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error',
+        };
+    }
+}
+
+/**
+ * Unpin a specific message or all messages in a chat/topic
+ */
+export async function unpinChatMessage(
+    chatId: string | number,
+    messageId?: number,
+    messageThreadId?: number
+): Promise<{ success: boolean; error?: string }> {
+    try {
+        const config = await loadTelegramConfig();
+
+        if (!config?.botToken) {
+            return { success: false, error: 'Telegram configuration is incomplete' };
+        }
+
+        const url = `https://api.telegram.org/bot${config.botToken}/unpinChatMessage`;
+
+        const body: any = {
+            chat_id: chatId,
+        };
+
+        if (messageId) {
+            body.message_id = messageId;
+        }
+
+        // Note: message_thread_id is NOT supported in unpinChatMessage
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(body),
+        });
+
+        const result = await response.json();
+
+        if (!response.ok || !result.ok) {
+            return {
+                success: false,
+                error: result.description || 'Failed to unpin message',
+            };
+        }
+
+        return { success: true };
+    } catch (error) {
+        return {
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error',
+        };
+    }
+}
+
+/**
+ * Unpin all messages in a chat
+ */
+export async function unpinAllChatMessages(
+    chatId: string | number
+): Promise<{ success: boolean; error?: string }> {
+    try {
+        const config = await loadTelegramConfig();
+
+        if (!config?.botToken) {
+            return { success: false, error: 'Telegram configuration is incomplete' };
+        }
+
+        const url = `https://api.telegram.org/bot${config.botToken}/unpinAllChatMessages`;
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                chat_id: chatId,
+            }),
+        });
+
+        const result = await response.json();
+
+        if (!response.ok || !result.ok) {
+            return {
+                success: false,
+                error: result.description || 'Failed to unpin all messages',
             };
         }
 

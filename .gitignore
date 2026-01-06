@@ -55,3 +55,11 @@ next-env.d.ts
 
 # User uploads
 /Remote
+
+# Downloaded and extracted archives from Telegram
+/Download/*
+!/Download/.gitkeep
+
+# Temporary git clones
+/temp/*
+!/temp/.gitkeep

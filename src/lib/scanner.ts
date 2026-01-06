@@ -436,6 +436,10 @@ export async function runScan(
         }
 
         const localRulesPath = path.join(process.cwd(), 'OpenGrep', 'rules');
+
+        // Decide early whether to use online or local rules (needed for analysis section)
+        const forceOnline = process.env.OPENGREP_USE_LOCAL_RULES !== 'true';
+
         const analysisData: any = {
             files: scannedFiles,
             rules: 0,
@@ -464,12 +468,29 @@ export async function runScan(
 
         for (const lang of detectedLanguages) {
             let ruleCount = 0;
-            const folderName = RULE_DIR_MAP[lang] || lang.toLowerCase();
-            const langDir = path.join(localRulesPath, folderName);
-            ruleCount = await countRulesInDir(langDir);
-            if (ruleCount === 0) {
-                ruleCount = lang === 'TypeScript' ? 215 : lang === 'Python' ? 711 : lang === 'JavaScript' ? 358 : 50;
+
+            // When using online mode, use estimated rule counts (faster, no file system access)
+            // When using local rules, count actual files
+            if (forceOnline) {
+                // Estimated rule counts from Semgrep Registry
+                ruleCount = lang === 'TypeScript' ? 215 :
+                    lang === 'Python' ? 711 :
+                        lang === 'JavaScript' ? 358 :
+                            lang === 'Java' ? 450 :
+                                lang === 'Go' ? 180 :
+                                    lang === 'PHP' ? 120 :
+                                        lang === 'Ruby' ? 95 :
+                                            50;
+            } else {
+                // Count local rules if using offline mode
+                const folderName = RULE_DIR_MAP[lang] || lang.toLowerCase();
+                const langDir = path.join(localRulesPath, folderName);
+                ruleCount = await countRulesInDir(langDir);
+                if (ruleCount === 0) {
+                    ruleCount = 50; // Fallback
+                }
             }
+
             analysisData.languages.push({
                 name: lang, rules: ruleCount, files: languageCounts.get(lang) || 0
             });
@@ -520,22 +541,26 @@ export async function runScan(
 
         let rawSastFindings: OpenGrepFinding[] = [];
         let configArg = 'auto';
-        let isOffline = false;
 
-        try {
-            await fs.access(localRulesPath);
-            configArg = localRulesPath;
-            isOffline = true;
-            logs += `[Scanner] ✓ Using local rules from: ${localRulesPath}\n`;
-        } catch {
-            logs += `[Scanner] ⚠ Local rules not found, using Opengrep Registry (online)\n`;
+        // Use the forceOnline variable declared earlier
+        if (!forceOnline) {
+            // Only check for local rules if explicitly enabled
+            try {
+                await fs.access(localRulesPath);
+                configArg = localRulesPath;
+                logs += `[Scanner] 📁 Using local rules from: ${localRulesPath}\n`;
+            } catch {
+                logs += `[Scanner] ⚠ Local rules not found, falling back to online\n`;
+            }
         }
 
-        if (!isOffline) {
+        // Use online Semgrep Registry (default behavior)
+        if (configArg === 'auto') {
+            logs += `[Scanner] ☁️  Using Semgrep Registry (online mode)\n`;
             if (ruleSet.includes('Security')) configArg = 'p/security-audit';
             else if (ruleSet.includes('Compliance')) configArg = 'p/owasp-top-ten';
             else if (ruleSet.includes('Best')) configArg = 'p/best-practices';
-            else configArg = 'auto';
+            // else keep 'auto' for default registry rules
         }
 
         progressCallback?.({ progress: 45, stage: 'Starting SAST scan...', details: isIncremental ? 'Incremental SAST scan' : 'Full SAST scan' });
@@ -657,11 +682,74 @@ export async function createTemporaryRepo(url: string): Promise<string> {
 }
 
 export async function cleanupTemp(pathStr: string): Promise<void> {
-    try {
-        if (pathStr.includes('temp')) {
-            await fs.rm(pathStr, { recursive: true, force: true });
+    if (!pathStr.includes('temp')) {
+        return;
+    }
+
+    const maxRetries = 3;
+    const retryDelay = 1000; // 1 second
+
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+            // Try force removal first
+            await fs.rm(pathStr, { recursive: true, force: true, maxRetries: 3 });
+            console.log(`[Cleanup] Successfully cleaned up: ${pathStr}`);
+            return;
+        } catch (err: any) {
+            // If it's an ENOTEMPTY error and we have retries left, wait and retry
+            if (err.code === 'ENOTEMPTY' && attempt < maxRetries - 1) {
+                console.warn(`[Cleanup] Directory not empty (attempt ${attempt + 1}/${maxRetries}), retrying...`);
+                await new Promise(resolve => setTimeout(resolve, retryDelay * (attempt + 1)));
+                continue;
+            }
+
+            // Last resort: try manual recursive deletion
+            if (attempt === maxRetries - 1) {
+                console.warn(`[Cleanup] Standard removal failed, attempting manual cleanup...`);
+                try {
+                    await manualRecursiveDelete(pathStr);
+                    console.log(`[Cleanup] Manual cleanup succeeded: ${pathStr}`);
+                    return;
+                } catch (manualErr) {
+                    console.error(`[Cleanup] Manual cleanup also failed for ${pathStr}:`, manualErr);
+                }
+            }
+
+            console.error(`Error cleaning up temp path ${pathStr}:`, err);
         }
+    }
+}
+
+async function manualRecursiveDelete(dir: string): Promise<void> {
+    try {
+        const entries = await fs.readdir(dir, { withFileTypes: true });
+
+        for (const entry of entries) {
+            const fullPath = path.join(dir, entry.name);
+
+            if (entry.isDirectory()) {
+                await manualRecursiveDelete(fullPath);
+            } else {
+                try {
+                    await fs.unlink(fullPath);
+                } catch (unlinkErr) {
+                    // Try changing permissions first on Windows
+                    try {
+                        await fs.chmod(fullPath, 0o666);
+                        await fs.unlink(fullPath);
+                    } catch {
+                        // Ignore individual file errors, continue cleanup
+                    }
+                }
+            }
+        }
+
+        // Try to remove the directory itself
+        await fs.rmdir(dir);
     } catch (err) {
-        console.error(`Error cleaning up temp path ${pathStr}:`, err);
+        // If directory doesn't exist or already deleted, that's fine
+        if ((err as any).code !== 'ENOENT') {
+            throw err;
+        }
     }
 }

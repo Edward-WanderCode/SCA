@@ -83,12 +83,14 @@ export async function POST(request: Request) {
         let worker;
         if (isWindows) {
             // Create batch script for proper redirection in system temp
-            const batchContent = `@echo off\r\nnpx tsx "${workerScript}" ${scanId} "${configJson.replace(/"/g, '\\"')}" > "${logFile}" 2> "${errFile}"`;
+            // Add 'exit' at the end to ensure the CMD window closes
+            const batchContent = `@echo off\r\nnpx tsx "${workerScript}" ${scanId} "${configJson.replace(/"/g, '\\"')}" > "${logFile}" 2> "${errFile}"\r\nexit`;
             const batchFile = path.join(tempDir, `worker-${scanId}.bat`);
             await fs.promises.writeFile(batchFile, batchContent);
 
-            // START /B /MIN = run in background, minimized, without new window
-            worker = spawn('cmd', ['/c', 'start', '/B', '/MIN', batchFile], {
+            // Run batch file directly without START command
+            // windowsHide: true prevents window from showing
+            worker = spawn('cmd.exe', ['/c', batchFile], {
                 stdio: 'ignore',
                 cwd: process.cwd(),
                 detached: true,

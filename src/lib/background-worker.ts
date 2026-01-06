@@ -24,6 +24,7 @@ interface WorkerConfig {
     compareWithId?: string;
     metadata?: {
         telegramChatId?: number | string;
+        telegramThreadId?: number;
         triggeredBy?: string;
         source?: string;
     };
@@ -81,8 +82,85 @@ async function main() {
     const startTime = Date.now();
     let targetPath = config.targetPath || process.cwd();
     let isTemp = config.isTemp || false;
+    let messageThreadId: number | undefined;
+    let targetChatId: string | number | undefined;
+    let projectName = '';
 
     try {
+        // Get initial scan data to extract project name
+        const initialScan = await prisma.scan.findUnique({
+            where: { id: scanId },
+        });
+
+        if (initialScan) {
+            projectName = initialScan.sourceName;
+        }
+
+        // Create Telegram topic and send start notification IMMEDIATELY
+        try {
+            const { loadTelegramConfig, getOrCreateForumTopic, sendTelegramMessage } = await import('./telegram');
+            const telegramConfig = await loadTelegramConfig();
+
+            if (telegramConfig && telegramConfig.enabled) {
+                targetChatId = config.metadata?.telegramChatId || telegramConfig.chatId;
+
+                // Check if we already have a telegramThreadId from rescan
+                if (config.metadata?.telegramThreadId) {
+                    messageThreadId = config.metadata.telegramThreadId;
+                    console.log(`[Worker] Reusing existing Telegram topic: ${messageThreadId}`);
+                }
+                // Create a topic if the target is a supergroup (chatId usually starts with -100)
+                else if (targetChatId.toString().startsWith('-100')) {
+                    console.log(`[Worker] Creating Telegram topic for project: ${projectName}...`);
+                    const topicResult = await getOrCreateForumTopic(projectName);
+
+                    if (topicResult.success && topicResult.message_thread_id) {
+                        messageThreadId = topicResult.message_thread_id;
+                        console.log(`[Worker] Topic created: ${messageThreadId}`);
+
+                        // Save Telegram info to scan record immediately
+                        await prisma.scan.update({
+                            where: { id: scanId },
+                            data: {
+                                telegramChatId: targetChatId.toString(),
+                                telegramThreadId: messageThreadId,
+                            },
+                        });
+                    } else {
+                        console.warn('[Worker] ⚠️ Topic creation failed or not a Forum:', topicResult.error);
+                    }
+                }
+
+                // Send start notification to topic
+                if (messageThreadId || targetChatId) {
+                    const startMessage = `
+🚀 <b>Bắt Đầu Quét Bảo Mật</b>
+
+📁 Dự án: <b>${projectName}</b>
+🆔 Scan ID: <code>${scanId}</code>
+📅 Thời gian: ${new Date().toLocaleString('vi-VN')}
+${config.metadata?.triggeredBy ? `👤 Được kích hoạt bởi: <b>${config.metadata.triggeredBy}</b>` : ''}
+
+⏳ Đang tiến hành phân tích...
+                    `.trim();
+
+                    const notifyResult = await sendTelegramMessage(
+                        startMessage,
+                        messageThreadId,
+                        targetChatId
+                    );
+
+                    if (notifyResult.success) {
+                        console.log('[Worker] ✅ Start notification sent to Telegram topic');
+                    } else {
+                        console.warn('[Worker] ⚠️ Failed to send start notification:', notifyResult.error);
+                    }
+                }
+            }
+        } catch (telegramError) {
+            console.warn('[Worker] Telegram start notification error (non-critical):', telegramError);
+        }
+
         // Handle git clone if needed
         if (config.method === 'git' && config.url && !config.targetPath) {
             console.log(`[Worker] Cloning repository: ${config.url}`);
@@ -189,7 +267,7 @@ async function main() {
 
         // Auto-send to Telegram if enabled
         try {
-            const { loadTelegramConfig, sendPdfToTelegram, getOrCreateForumTopic } = await import('./telegram');
+            const { loadTelegramConfig, sendPdfToTelegram } = await import('./telegram');
             const { generateScanPdfBuffer } = await import('./pdf-export');
 
             const telegramConfig = await loadTelegramConfig();
@@ -235,44 +313,61 @@ async function main() {
                         const high = pdfData.stats.findings.high || 0;
                         const medium = pdfData.stats.findings.medium || 0;
 
-                        const caption = `
-🔒 <b>Security Scan Report</b>
+                        // If this is a rescan, fetch old scan data for comparison
+                        let comparisonText = '';
+                        if (config.compareWithId) {
+                            try {
+                                const oldScan = await prisma.scan.findUnique({
+                                    where: { id: config.compareWithId },
+                                });
 
-📁 Project: <b>${pdfData.source.name}</b>
-📅 Date: ${new Date(pdfData.timestamp).toLocaleString()}
-📊 Total Findings: <b>${totalFindings}</b>
+                                if (oldScan) {
+                                    const oldTotal = oldScan.criticalCount + oldScan.highCount + oldScan.mediumCount + oldScan.lowCount + oldScan.infoCount;
+                                    const newTotal = totalFindings;
+                                    const diff = newTotal - oldTotal;
 
-⚠️ Critical: ${critical}
-🔴 High: ${high}
-🟡 Medium: ${medium}
+                                    const criticalDiff = critical - oldScan.criticalCount;
+                                    const highDiff = high - oldScan.highCount;
+                                    const mediumDiff = medium - oldScan.mediumCount;
 
-${config.metadata?.triggeredBy ? `👤 Triggered by: <b>${config.metadata.triggeredBy}</b>` : 'Generated by SCA Platform'}
-                        `.trim();
+                                    const formatDiff = (num: number) => {
+                                        if (num > 0) return `🔺 +${num}`;
+                                        if (num < 0) return `🔻 ${num}`;
+                                        return '➖ 0';
+                                    };
 
-                        const targetChatId = config.metadata?.telegramChatId || telegramConfig.chatId;
-                        let messageThreadId: number | undefined;
-
-                        // Create a topic if the target is a group (usually starts with -100)
-                        if (targetChatId.toString().startsWith('-100')) {
-                            console.log(`[Worker] Creating Telegram topic for project: ${pdfData.source.name}...`);
-                            // Use Project Name + Scan ID to make it unique and descriptive
-                            const topicName = `${pdfData.source.name} | ${scanId}`;
-                            const topicResult = await getOrCreateForumTopic(topicName);
-
-                            if (topicResult.success) {
-                                messageThreadId = topicResult.message_thread_id;
-                                console.log(`[Worker] Topic created: ${messageThreadId}`);
-                            } else {
-                                console.warn('[Worker] ⚠️ Topic creation failed or not a Forum:', topicResult.error);
+                                    comparisonText = `\n\n🔄 <b>So Sánh Quét Lại:</b>\nTổng: ${oldTotal} → ${newTotal} (${formatDiff(diff)})\n⚠️ Nghiêm trọng: ${formatDiff(criticalDiff)}\n🔴 Cao: ${formatDiff(highDiff)}\n🟡 Trung bình: ${formatDiff(mediumDiff)}`;
+                                }
+                            } catch (err) {
+                                console.warn('[Worker] Could not fetch old scan for comparison:', err);
                             }
                         }
+
+                        const caption = `
+🔒 <b>Báo Cáo Quét Bảo Mật</b>
+
+📁 Dự án: <b>${pdfData.source.name}</b>
+📅 Ngày: ${new Date(pdfData.timestamp).toLocaleString('vi-VN')}
+📊 Tổng số lỗi: <b>${totalFindings}</b>
+
+⚠️ Nghiêm trọng: ${critical}
+🔴 Cao: ${high}
+🟡 Trung bình: ${medium}${comparisonText}
+
+${config.metadata?.triggeredBy ? `👤 Được kích hoạt bởi: <b>${config.metadata.triggeredBy}</b>` : 'Tạo bởi SCA Platform'}
+                        `.trim();
+
+                        // Use the topic and chatId created at the start of the scan
+                        const finalChatId = targetChatId || config.metadata?.telegramChatId || telegramConfig.chatId;
+
+                        console.log(`[Worker] Sending PDF to topic ${messageThreadId} in chat ${finalChatId}`);
 
                         const telegramResult = await sendPdfToTelegram(
                             buffer,
                             filename,
                             caption,
                             messageThreadId,
-                            targetChatId
+                            finalChatId
                         );
 
                         if (telegramResult.success) {

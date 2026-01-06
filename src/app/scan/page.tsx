@@ -183,6 +183,10 @@ function ScanPageContent() {
             // Auto start if coming from rescan
             if (compareId) setCompareWithId(compareId);
             startScanWithParams(methodParam, pathParam, pathParam, compareId || undefined)
+        } else {
+            // Load last used path if no URL params
+            const savedPath = localStorage.getItem('lastScanPath')
+            if (savedPath) setFolderPath(savedPath)
         }
 
         // Fetch active scans
@@ -681,6 +685,7 @@ function ScanPageContent() {
                 onClose={() => setShowFileBrowser(false)}
                 onSelect={(path) => {
                     setFolderPath(path);
+                    localStorage.setItem('lastScanPath', path);
                     setShowFileBrowser(false);
                 }}
                 initialPath={folderPath}

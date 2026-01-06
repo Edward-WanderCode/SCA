@@ -145,35 +145,7 @@ export async function deleteTopicInfo(
     await saveTopicsData(data);
 }
 
-/**
- * Check if topic is allowed for file uploads
- */
-export function isUploadAllowedInTopic(topicName: string | null | undefined): boolean {
-    if (!topicName) return false;
 
-    const ALLOWED_UPLOAD_TOPICS = [
-        'Upload file ở đây',
-        'Upload Files',
-        'File Upload',
-        'Uploads'
-    ];
-
-    return ALLOWED_UPLOAD_TOPICS.some(allowed =>
-        allowed.toLowerCase() === topicName.toLowerCase()
-    );
-}
-
-/**
- * Get allowed upload topics list
- */
-export function getAllowedUploadTopics(): string[] {
-    return [
-        'Upload file ở đây',
-        'Upload Files',
-        'File Upload',
-        'Uploads'
-    ];
-}
 
 /**
  * Clear old cache entries (older than 30 days)

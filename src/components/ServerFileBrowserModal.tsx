@@ -42,9 +42,19 @@ export default function ServerFileBrowserModal({
 
     useEffect(() => {
         if (isOpen) {
+            if (initialPath && initialPath !== currentPath) {
+                setCurrentPath(initialPath);
+            } else {
+                fetchItems(currentPath);
+            }
+        }
+    }, [isOpen]);
+
+    useEffect(() => {
+        if (isOpen && currentPath) {
             fetchItems(currentPath);
         }
-    }, [isOpen, currentPath]);
+    }, [currentPath]);
 
     const fetchItems = async (path: string) => {
         setLoading(true);

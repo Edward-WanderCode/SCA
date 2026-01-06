@@ -70,16 +70,7 @@ async function handleTelegramUpdate(update: any) {
 
         const msg = update.message;
 
-        // Handle document uploads (RAR/ZIP files) - Only in specific topics
-        if (msg?.document) {
-            const chatId = msg.chat.id;
-            const username = msg.from?.username || msg.from?.first_name || 'User';
-            const messageThreadId = msg.message_thread_id;
-            const topicName = msg.reply_to_message?.forum_topic_created?.name || '';
 
-            await handleDocumentUpload(msg.document, chatId, config.botToken, username, messageThreadId, topicName, msg.message_id);
-            return;
-        }
 
         if (!msg?.text) return;
 
@@ -141,14 +132,13 @@ async function handleHelpCommand(chatId: number | string, token: string, message
 Chào mừng bạn đến với trợ lý phân tích bảo mật mã nguồn. Sử dụng các nút bên dưới hoặc gõ lệnh trực tiếp.
 
 📊 <b>/scan</b> - Bắt đầu quét mới
-📥 <b>Upload File</b> - Tải lên file RAR/ZIP để quét
+
 📋 <b>/listscan</b> - Hiển thị danh sách quét
 🔍 <b>/status</b> - Theo dõi tiến trình
 🔄 <b>/rescan</b> - Quét lại và so sánh thay đổi
 🗑️ <b>/delete</b> - Xóa một lần quét và topic
 📋 <b>/help</b> - Hiển thị tin nhắn này
-
-💡 <b>Mẹo:</b> Bạn có thể upload trực tiếp file RAR hoặc ZIP vào chat. Bot sẽ tự động tải về, giải nén và quét!`, keyboard, messageThreadId);
+`, keyboard, messageThreadId);
 }
 
 async function handleListScanCommand(chatId: number | string, token: string, messageThreadId?: number) {
@@ -477,228 +467,9 @@ async function handleRescanCommand(text: string, chatId: number | string, token:
     await executeRescan(scanId, chatId, token, user, messageThreadId);
 }
 
-async function handleDocumentUpload(
-    document: any,
-    chatId: number | string,
-    token: string,
-    username: string,
-    messageThreadId?: number,
-    topicName?: string,
-    messageId?: number
-) {
-    try {
-        const fileName = document.file_name || 'unknown';
-        const fileSize = document.file_size || 0;
 
-        console.log(`[PID:${PID}] Received document: ${fileName} (${fileSize} bytes)`);
 
-        const {
-            getCachedTopicName,
-            cacheTopicInfo,
-            isUploadAllowedInTopic,
-            getAllowedUploadTopics
-        } = await import('./topic-manager');
 
-        // If not in a topic, reject immediately
-        if (!messageThreadId) {
-            await sendTelegramMessage(
-                chatId,
-                token,
-                `❌ <b>Upload bị từ chối</b>\n\n` +
-                `💡 Vui lòng upload file vào một trong các topic sau:\n` +
-                getAllowedUploadTopics().map(t => `   • <b>${t}</b>`).join('\n') +
-                `\n\n⚠️ Không được upload trực tiếp vào chat chính.`
-            );
-            return;
-        }
-
-        let currentTopicName = topicName;
-        if (!currentTopicName) {
-            currentTopicName = (await getCachedTopicName(chatId, messageThreadId)) || undefined;
-        }
-
-        if (topicName && messageThreadId) {
-            await cacheTopicInfo(chatId, messageThreadId, topicName);
-        }
-
-        if (!isUploadAllowedInTopic(currentTopicName)) {
-            await sendTelegramMessage(
-                chatId,
-                token,
-                `❌ <b>Upload bị từ chối</b>\n\n` +
-                `💡 Vui lòng upload file vào topic:\n` +
-                getAllowedUploadTopics().map(t => `   • <b>${t}</b>`).join('\n') +
-                `\n\n📌 Topic hiện tại: <i>${currentTopicName || 'Unknown'}</i>`
-            );
-            return;
-        }
-
-        const {
-            isSupportedArchive,
-            downloadTelegramFile,
-            downloadTelegramFileWithGramJS,
-            extractArchive,
-            formatFileSize
-        } = await import('./file-handler');
-
-        if (!isSupportedArchive(fileName)) {
-            await sendTelegramMessage(
-                chatId,
-                token,
-                `❌ File không được hỗ trợ: ${fileName}\n\n💡 Chỉ hỗ trợ file RAR và ZIP.`
-            );
-            return;
-        }
-
-        // Determine which download method to use based on file size
-        const MAX_BOT_API_SIZE = 20 * 1024 * 1024; // 20 MB
-        const useGramJS = fileSize > MAX_BOT_API_SIZE;
-
-        await sendTelegramMessage(
-            chatId,
-            token,
-            `📥 Đang tải xuống file: <b>${fileName}</b>\n📦 Kích thước: ${formatFileSize(fileSize)}\n${useGramJS ? '⚡ Sử dụng GramJS (file >20MB)' : '🤖 Sử dụng Bot API'}\n\n⏳ Vui lòng đợi...`,
-            messageThreadId
-        );
-
-        let downloadResult;
-
-        if (useGramJS) {
-            // Use GramJS for large files (>20MB)
-            console.log(`[PID:${PID}] Using GramJS for large file: ${fileName}`);
-
-            // We need the message ID to use GramJS
-            if (!messageId) {
-                await sendTelegramMessage(
-                    chatId,
-                    token,
-                    `❌ Không thể lấy message ID để tải file lớn.`,
-                    messageThreadId
-                );
-                return;
-            }
-
-            downloadResult = await downloadTelegramFileWithGramJS(
-                chatId,
-                messageId,
-                fileName,
-                fileSize
-            );
-        } else {
-            // Use standard Bot API for small files (≤20MB)
-            console.log(`[PID:${PID}] Using Bot API for file: ${fileName}`);
-            downloadResult = await downloadTelegramFile(
-                document.file_id,
-                token,
-                fileName,
-                fileSize
-            );
-        }
-
-        if (!downloadResult.success || !downloadResult.filePath) {
-            await sendTelegramMessage(
-                chatId,
-                token,
-                `❌ Lỗi tải file: ${downloadResult.error}`,
-                messageThreadId
-            );
-            return;
-        }
-
-        await sendTelegramMessage(
-            chatId,
-            token,
-            `✅ Đã tải xuống!\n📂 Đang giải nén file...`,
-            messageThreadId
-        );
-
-        const extractResult = await extractArchive(downloadResult.filePath);
-
-        if (!extractResult.success || !extractResult.extractPath) {
-            await sendTelegramMessage(chatId, token, `❌ Lỗi giải nén: ${extractResult.error}`);
-            return;
-        }
-
-        let extractMessage = `✅ Đã giải nén thành công!\n📁 Thư mục: <code>${extractResult.extractPath}</code>`;
-
-        if (extractResult.stats) {
-            const { totalExtracted, nestedArchives, maxDepthReached } = extractResult.stats;
-
-            if (nestedArchives > 0) {
-                extractMessage += `\n\n📦 <b>Recursive Extraction:</b>`;
-                extractMessage += `\n   • Nested archives found: ${nestedArchives}`;
-                extractMessage += `\n   • Total extracted: ${totalExtracted}`;
-                extractMessage += `\n   • Max depth reached: ${maxDepthReached}`;
-            }
-        }
-
-        extractMessage += `\n\n🚀 Đang bắt đầu quét bảo mật...`;
-
-        await sendTelegramMessage(chatId, token, extractMessage, messageThreadId);
-
-        const scanResult = await triggerFolderScan(extractResult.extractPath, chatId, username, messageThreadId);
-
-        if (scanResult.success) {
-            await sendTelegramMessage(
-                chatId,
-                token,
-                `✅ Đã bắt đầu quét!\n📁 Dự án: <b>${fileName}</b>\n🆔 Scan ID: <code>${scanResult.scanId}</code>\n\n⏳ Quá trình quét sẽ được thông báo khi hoàn thành.`,
-                messageThreadId
-            );
-        } else {
-            await sendTelegramMessage(
-                chatId,
-                token,
-                `❌ Lỗi khởi tạo quét: ${scanResult.error}`,
-                messageThreadId
-            );
-        }
-    } catch (error: any) {
-        console.error(`[PID:${PID}] Document upload error:`, error);
-        await sendTelegramMessage(
-            chatId,
-            token,
-            `❌ Lỗi xử lý file: ${error.message}`,
-            messageThreadId
-        );
-    }
-}
-
-async function triggerFolderScan(
-    folderPath: string,
-    chatId: number | string,
-    user: string,
-    messageThreadId?: number
-) {
-    try {
-        const path = await import('path');
-        const projectName = path.basename(folderPath);
-
-        const body: any = {
-            method: 'folder',
-            folderPath: folderPath,
-            metadata: {
-                telegramChatId: chatId,
-                triggeredBy: user,
-                source: 'telegram_upload'
-            }
-        };
-
-        if (messageThreadId) {
-            body.metadata.telegramThreadId = messageThreadId;
-        }
-
-        const res = await fetch('http://localhost:3000/api/scan/stream', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
-        });
-
-        return await res.json();
-    } catch (e: any) {
-        return { success: false, error: e.message };
-    }
-}
 
 async function sendTelegramMessage(chatId: number | string, token: string, text: string, messageThreadId?: number) {
     try {

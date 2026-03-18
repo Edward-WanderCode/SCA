@@ -18,6 +18,7 @@ import {
     ChevronDown,
     ChevronRight,
     Copy,
+    Key,
     ExternalLink,
     Loader2,
     AlertCircle,
@@ -1002,7 +1003,7 @@ export default function ResultsDetailPage() {
                             <Shield className="w-5 h-5 text-indigo-400" />
                             Findings by Scanning Tool
                         </h4>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                             {/* OpenGrep SAST */}
                             <div className="bg-gradient-to-br from-purple-500/10 to-indigo-500/10 border border-purple-500/20 rounded-lg p-4">
                                 <div className="flex items-center justify-between mb-3">
@@ -1015,7 +1016,7 @@ export default function ResultsDetailPage() {
                                     </span>
                                 </div>
                                 <p className="text-xs text-purple-200/60">
-                                    Static Application Security Testing - Source code analysis
+                                    Static Application Security Testing - Source code
                                 </p>
                             </div>
 
@@ -1031,14 +1032,30 @@ export default function ResultsDetailPage() {
                                     </span>
                                 </div>
                                 <p className="text-xs text-cyan-200/60">
-                                    Software Composition Analysis - Dependencies & secrets
+                                    Software Composition Analysis - Dependencies
+                                </p>
+                            </div>
+
+                            {/* TruffleHog Secrets */}
+                            <div className="bg-gradient-to-br from-orange-500/10 to-red-500/10 border border-orange-500/20 rounded-lg p-4">
+                                <div className="flex items-center justify-between mb-3">
+                                    <div className="flex items-center gap-2">
+                                        <Key className="w-5 h-5 text-orange-400" />
+                                        <h5 className="font-bold text-orange-300">TruffleHog (Secrets)</h5>
+                                    </div>
+                                    <span className="text-3xl font-bold text-orange-400">
+                                        {scanData.stats.secretCount || 0}
+                                    </span>
+                                </div>
+                                <p className="text-xs text-orange-200/60">
+                                    Secret Scanning - Hardcoded keys & tokens
                                 </p>
                             </div>
                         </div>
                         <div className="mt-4 pt-4 border-t border-white/10 flex items-center justify-between">
                             <span className="text-sm text-muted-foreground">Total Findings</span>
                             <span className="text-2xl font-bold text-indigo-400">
-                                {(scanData.stats.sastCount || 0) + (scanData.stats.trivyCount || 0)}
+                                {(scanData.stats.sastCount || 0) + (scanData.stats.trivyCount || 0) + (scanData.stats.secretCount || 0)}
                             </span>
                         </div>
                     </div>

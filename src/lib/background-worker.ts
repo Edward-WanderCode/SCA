@@ -199,6 +199,7 @@ ${config.metadata?.triggeredBy ? `👤 Được kích hoạt bởi: <b>${config.
             logs,
             sastCount,
             trivyCount,
+            secretCount,
             analysis,
             fileTree,
         } = await runScan(
@@ -224,6 +225,7 @@ ${config.metadata?.triggeredBy ? `👤 Được kích hoạt bởi: <b>${config.
                 duration: duration,
                 sastCount: sastCount,
                 trivyCount: trivyCount,
+                secretCount: secretCount,
                 criticalCount: findings.filter((f: any) => f.severity === 'critical').length,
                 highCount: findings.filter((f: any) => f.severity === 'high').length,
                 mediumCount: findings.filter((f: any) => f.severity === 'medium').length,

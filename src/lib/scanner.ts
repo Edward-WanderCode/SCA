@@ -251,6 +251,62 @@ async function runTrivyScan(targetPath: string, binPath: string = 'trivy'): Prom
     }
 }
 
+async function runTruffleHogScan(targetPath: string, binPath: string = 'trufflehog'): Promise<any[]> {
+    try {
+        console.log(`[Scanner] Running TruffleHog scan with ${binPath} on: ${targetPath}`);
+        
+        const { stdout } = await execAsync(
+            `"${binPath}" filesystem "${targetPath}" --no-update --json`,
+            { maxBuffer: 50 * 1024 * 1024 }
+        ).catch(err => {
+            if (err.message?.includes('not recognized') || err.message?.includes('command not found')) {
+                console.warn('[Scanner] TruffleHog not found. Skipping secret scan.');
+                return { stdout: '' };
+            }
+            if (err.stdout) return { stdout: err.stdout };
+            throw err;
+        });
+
+        if (!stdout || stdout.trim() === '') return [];
+
+        const findings: any[] = [];
+        const lines = stdout.split('\n').filter((line: string) => line.trim().length > 0);
+        
+        for (const line of lines) {
+            try {
+                const data = JSON.parse(line);
+                if (data.DetectorName) {
+                    let codeSnippet = data.Raw?.trim() || 'REDACTED';
+                    if (data.Raw === data.Redacted) {
+                        codeSnippet = data.Redacted?.trim() || 'REDACTED';
+                    } else if (data.Redacted) {
+                        codeSnippet = data.Redacted.trim();
+                    }
+
+                    findings.push({
+                        id: `scan-${Math.random().toString(36).substring(7)}`,
+                        fingerprint: `trufflehog.${data.DetectorName}|${data.SourceMetadata?.Data?.Filesystem?.file || 'unknown'}|${data.DecoderName || ''}`,
+                        isNew: false,
+                        title: data.DetectorName,
+                        severity: data.Verified ? 'critical' : 'high',
+                        file: data.SourceMetadata?.Data?.Filesystem?.file || 'unknown',
+                        line: parseInt(data.SourceMetadata?.Data?.Filesystem?.line) || 0,
+                        column: 0,
+                        message: `Secret detected: ${data.DetectorName}${data.Verified ? ' (VERIFIED ACTIVE)' : ''}`,
+                        code: codeSnippet,
+                        category: 'Secret',
+                        fix: 'Revoke this secret, generate a new one, and inject it via environment variables or a secure vault.'
+                    });
+                }
+            } catch (e) {}
+        }
+        return findings;
+    } catch (error) {
+        console.warn('[Scanner] TruffleHog failed:', error instanceof Error ? error.message : String(error));
+        return [];
+    }
+}
+
 async function runOpengrepWithProgress(
     binPath: string,
     args: string[],
@@ -402,6 +458,7 @@ export async function runScan(
     fileTree: FileNode[],
     sastCount: number,
     trivyCount: number,
+    secretCount: number,
     analysis?: any
 }> {
     console.log(`[Scanner] runScan called for path: ${targetPath}`);
@@ -476,8 +533,10 @@ export async function runScan(
 
         const portableOpengrep = path.join(process.cwd(), 'OpenGrep', 'opengrep.exe');
         const portableTrivy = path.join(process.cwd(), 'Trivy', 'trivy.exe');
+        const portableTruffleHog = path.join(process.cwd(), 'TruffleHog', 'trufflehog.exe');
         const possibleOpengrepPaths = [portableOpengrep, 'opengrep'];
         const possibleTrivyPaths = [portableTrivy, 'trivy'];
+        const possibleTruffleHogPaths = [portableTruffleHog, 'trufflehog'];
 
         let opengrepBin = 'opengrep';
         for (const p of possibleOpengrepPaths) {
@@ -497,6 +556,17 @@ export async function runScan(
                 await execAsync(`${cmd} --version`);
                 logs += `[Scanner] Using Trivy: ${p}\n`;
                 trivyBin = cmd;
+                break;
+            } catch { }
+        }
+
+        let trufflehogBin = 'trufflehog';
+        for (const p of possibleTruffleHogPaths) {
+            try {
+                const cmd = p.includes(' ') ? `"${p}"` : p;
+                await execAsync(`${cmd} --version`);
+                logs += `[Scanner] Using TruffleHog: ${p}\n`;
+                trufflehogBin = cmd;
                 break;
             } catch { }
         }
@@ -583,10 +653,14 @@ export async function runScan(
         const trivyFindingsRaw = await runTrivyScan(targetPath, trivyBin);
         const trivyFindingsUI = await mapFindingsToUI(trivyFindingsRaw, targetPath);
 
-        const allFindings = [...finalSastFindings, ...trivyFindingsUI];
+        progressCallback?.({ progress: 85, stage: 'Running secret scan...', details: 'TruffleHog analyzing secrets' });
+        const truffleHogFindingsUI = await runTruffleHogScan(targetPath, trufflehogBin);
+
+        const allFindings = [...finalSastFindings, ...trivyFindingsUI, ...truffleHogFindingsUI];
         const warnings: string[] = [];
         try { await execAsync(`${opengrepBin} --version`); } catch { warnings.push('Opengrep not found'); }
         try { await execAsync(`${trivyBin} --version`); } catch { warnings.push('Trivy not found'); }
+        try { await execAsync(`${trufflehogBin} --version`); } catch { warnings.push('TruffleHog not found'); }
 
         const fileTree = await generateFileTree(targetPath);
 
@@ -600,6 +674,7 @@ export async function runScan(
             fileTree,
             sastCount: finalSastFindings.length,
             trivyCount: trivyFindingsUI.length,
+            secretCount: truffleHogFindingsUI.length,
             analysis: analysisData
         };
 
@@ -608,7 +683,7 @@ export async function runScan(
         logs += `[Scanner Critical Error] ${errorMsg}\n`;
         return {
             findings: [], languages: [], warnings: [], scannedLines: 0, scannedFiles: 0,
-            logs, fileTree: [], sastCount: 0, trivyCount: 0
+            logs, fileTree: [], sastCount: 0, trivyCount: 0, secretCount: 0
         };
     }
 }

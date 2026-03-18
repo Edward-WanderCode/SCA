@@ -63,3 +63,5 @@ next-env.d.ts
 # Temporary git clones
 /temp/*
 !/temp/.gitkeep
+/TruffleHog
+/Scan

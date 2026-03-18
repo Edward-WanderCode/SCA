@@ -28,6 +28,7 @@ model Scan {
   duration     Int      @default(0)
   sastCount    Int      @default(0)
   trivyCount   Int      @default(0)
+  secretCount  Int      @default(0)
   
   // Findings count by severity
   criticalCount Int @default(0)

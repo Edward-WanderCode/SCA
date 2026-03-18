@@ -92,5 +92,44 @@ if (-not (Test-Path "$trivyDir\trivy.exe")) {
     Write-Host "   ✅ Trivy is already installed."
 }
 
+# 3. TruffleHog Setup
+Write-Host "`n[3/3] Checking TruffleHog..."
+$truffleHogDir = Join-Path $root "TruffleHog"
+if (-not (Test-Path "$truffleHogDir\trufflehog.exe")) {
+    Write-Host "   Binary not found. Attempting to download..."
+    New-Item -ItemType Directory -Force -Path $truffleHogDir | Out-Null
+    
+    $asset = Get-GitHubLatestReleaseAsset -Repo "trufflesecurity/trufflehog" -Pattern "windows_amd64\.tar\.gz"
+    
+    if ($asset) {
+         Write-Host "   Found version: $($asset.name)"
+         $archive = "$truffleHogDir\temp.tar.gz"
+         Write-Host "   Downloading..."
+         try {
+             Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $archive
+             
+             Write-Host "   Extracting..."
+             # Windows 10+ has tar
+             tar -xf $archive -C $truffleHogDir
+             
+             if (Test-Path "$truffleHogDir\trufflehog.exe") {
+                 Write-Host "   ✅ TruffleHog installed successfully."
+             } else {
+                 Write-Error "   ❌ trufflehog.exe not found in the downloaded archive."
+             }
+         } catch {
+             Write-Error "   ❌ Download/Extraction failed: $_"
+         } finally {
+             # Cleanup
+             if (Test-Path $archive) { Remove-Item $archive -Force }
+         }
+    } else {
+        Write-Warning "   ❌ Could not find TruffleHog Windows binary."
+        Write-Warning "   Please download manually from: https://github.com/trufflesecurity/trufflehog/releases"
+    }
+} else {
+    Write-Host "   ✅ TruffleHog is already installed."
+}
+
 Write-Host "`n----------------------------------------"
 Write-Host "Setup Complete."

@@ -203,6 +203,9 @@ export async function getScanById(scanId: string) {
         isRescan: scan.isRescan,
         comparedWithId: scan.comparedWithId,
         findings: scan.findings,
+        lastProgress: scan.lastProgress,
+        lastStage: scan.lastStage,
+        lastDetails: scan.lastDetails,
     };
 }
 

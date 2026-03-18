@@ -1,43 +1,22 @@
 {
   "mappings": {
-    "QLRAVAO": 17,
-    "ShiftScheduler": 21,
-    "EmployeeManagementSystem": 23,
-    "express": 28,
-    "CCCD.Windows": 30,
-    "Test Project 1767644442259": 90,
-    "javaspringvulny | scan-ln1k1u": 94,
-    "javaspringvulny | scan-m14w8b": 104,
-    "damn-vulnerable-MCP-server | scan-csx5jl": 127,
-    "damn-vulnerable-MCP-server | scan-vipy15": 132,
-    "MF_App_HCM_02": 290
+    "vulnerable-php-code-examples.git": 389,
+    "IOC_dancu_AGG": 393
   },
   "topics": {
-    "-1003668165075_279": {
-      "threadId": 279,
-      "name": "Upload file ở đây",
-      "chatId": -1003668165075,
-      "lastUpdated": 1767703057100
-    },
-    "-1003668165075_287": {
-      "threadId": 287,
-      "name": "MF_App_HCM_02",
+    "-1003668165075_389": {
+      "threadId": 389,
+      "name": "vulnerable-php-code-examples.git",
       "chatId": "-1003668165075",
-      "projectName": "MF_App_HCM_02",
-      "lastUpdated": 1767673156021
+      "projectName": "vulnerable-php-code-examples.git",
+      "lastUpdated": 1773829439385
     },
-    "-1003668165075_290": {
-      "threadId": 290,
-      "name": "MF_App_HCM_02",
+    "-1003668165075_393": {
+      "threadId": 393,
+      "name": "IOC_dancu_AGG",
       "chatId": "-1003668165075",
-      "projectName": "MF_App_HCM_02",
-      "lastUpdated": 1767673736321
-    },
-    "-1003668165075_306": {
-      "threadId": 306,
-      "name": "Bot Command",
-      "chatId": -1003668165075,
-      "lastUpdated": 1767703390000
+      "projectName": "IOC_dancu_AGG",
+      "lastUpdated": 1773829560306
     }
   }
 }

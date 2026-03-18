@@ -181,18 +181,20 @@ async function handleStatusCommand(scanId: string, chatId: number | string, toke
             const findings = scanData.findings || [];
             message += `📋 <b>Kết quả:</b> ${findings.length} lỗi\n`;
         } else if (status === 'running') {
-            message += `⏳ Trạng thái đang được cập nhật...`;
+            const progress = (scanData as any).lastProgress || 0;
+            const stage = (scanData as any).lastStage || 'Processing...';
+
+            // Generate progress bar
+            const filled = Math.floor(progress / 10);
+            const empty = 10 - filled;
+            const bar = '▓'.repeat(filled) + '░'.repeat(empty);
+
+            message += `⏳ <b>Tiến độ: ${progress}%</b>\n`;
+            message += `[${bar}]\n`;
+            message += `🔄 Giai đoạn: ${stage}`;
         }
 
-        // Add keyboard with Rescan/Delete
-        const keyboard = [
-            [
-                { text: '🔄 Rescan', callback_data: `rescan_${scanId}` },
-                { text: '🗑️ Delete', callback_data: `delete_${scanId}` }
-            ]
-        ];
-
-        await sendTelegramMessageWithKeyboard(chatId, token, message, keyboard, messageThreadId);
+        await sendTelegramMessage(chatId, token, message, messageThreadId);
     } catch (error) { }
 }
 

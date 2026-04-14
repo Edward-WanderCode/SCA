@@ -1,5 +1,7 @@
 # Security Policy
 
+🇻🇳 [Phiên bản tiếng Việt](SECURITY.vi.md)
+
 ## Supported Versions
 
 | Version | Supported          |
@@ -8,31 +10,31 @@
 
 ## Reporting a Vulnerability
 
-Nếu bạn phát hiện lỗ hổng bảo mật trong SCA, vui lòng **KHÔNG** tạo Issue công khai.
+If you discover a security vulnerability in SCA, please **DO NOT** create a public Issue.
 
-### Cách báo cáo
+### How to Report
 
-1. **Email**: Gửi chi tiết đến maintainer qua GitHub profile
-2. **GitHub Security Advisory**: Sử dụng tab "Security" trên repository để tạo private advisory
+1. **Email**: Send details to the maintainer via their GitHub profile
+2. **GitHub Security Advisory**: Use the "Security" tab on the repository to create a private advisory
 
-### Thông tin cần cung cấp
+### Information to Provide
 
-- Mô tả lỗ hổng
-- Các bước tái hiện
-- Mức độ nghiêm trọng (Critical/High/Medium/Low)
-- Phiên bản bị ảnh hưởng
-- Giải pháp đề xuất (nếu có)
+- Vulnerability description
+- Steps to reproduce
+- Severity level (Critical / High / Medium / Low)
+- Affected versions
+- Suggested fix (if available)
 
-### Thời gian phản hồi
+### Response Timeline
 
-- **Xác nhận nhận được**: trong 48 giờ
-- **Đánh giá ban đầu**: trong 7 ngày
-- **Bản vá**: tùy thuộc mức độ nghiêm trọng
+- **Acknowledgment**: within 48 hours
+- **Initial assessment**: within 7 days
+- **Patch release**: depending on severity
 
-## Các biện pháp bảo mật hiện tại
+## Current Security Measures
 
-- Input sanitization cho tất cả API endpoints
-- Command injection prevention khi gọi scan engines
-- SQLite WAL mode để tránh database lock
-- Temporary file cleanup tự động
-- Environment variables cho sensitive configuration
+- Input sanitization on all API endpoints
+- Command injection prevention when calling scan engines
+- SQLite WAL mode to prevent database locks
+- Automatic temporary file cleanup
+- Environment variables for sensitive configuration

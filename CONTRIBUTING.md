@@ -1,87 +1,89 @@
-# Contributing to SCA - Static Code Analyzer
+# Contributing to SCA — Static Code Analyzer
 
-Cảm ơn bạn đã quan tâm đến việc đóng góp cho SCA! 🎉  
-Mọi đóng góp đều được đánh giá cao — từ báo lỗi, đề xuất tính năng, đến viết code.
+🇻🇳 [Phiên bản tiếng Việt](CONTRIBUTING.vi.md)
 
-## 📋 Quy trình đóng góp
+Thank you for your interest in contributing to SCA! 🎉  
+All contributions are greatly appreciated — from bug reports, feature suggestions, to writing code.
+
+## 📋 Contribution Workflow
 
 ### 1. Fork & Clone
 
 ```bash
-# Fork repo trên GitHub, sau đó clone về máy
+# Fork the repo on GitHub, then clone your fork
 git clone https://github.com/<your-username>/SCA.git
 cd SCA
 ```
 
-### 2. Cài đặt môi trường
+### 2. Set Up Environment
 
 ```bash
-# Cài đặt dependencies
+# Install dependencies
 npm install
 
-# Copy file environment
+# Copy environment file
 cp .env.example .env
 
-# Tạo database và generate Prisma client
+# Create database and generate Prisma client
 npx prisma migrate dev
 npx prisma generate
 
-# Tải scan engines (Windows)
+# Download scan engines (Windows)
 npm run setup
 
-# Khởi động development server
+# Start development server
 npm run dev
 ```
 
-### 3. Tạo branch mới
+### 3. Create a New Branch
 
 ```bash
-git checkout -b feature/ten-tinh-nang
-# hoặc
-git checkout -b fix/ten-loi
+git checkout -b feature/your-feature-name
+# or
+git checkout -b fix/your-bug-fix
 ```
 
 ### 4. Code & Test
 
-- Viết code theo chuẩn dự án
-- Đảm bảo `npm run lint` không có lỗi
-- Đảm bảo `npm run build` thành công
+- Follow the project's coding standards
+- Ensure `npm run lint` passes without errors
+- Ensure `npm run build` succeeds
 
 ### 5. Commit & Push
 
 ```bash
 git add .
-git commit -m "feat: mô tả ngắn gọn thay đổi"
-git push origin feature/ten-tinh-nang
+git commit -m "feat: brief description of changes"
+git push origin feature/your-feature-name
 ```
 
-### 6. Tạo Pull Request
+### 6. Create a Pull Request
 
-- Mở Pull Request trên GitHub
-- Mô tả rõ ràng thay đổi của bạn
-- Liên kết đến Issue liên quan (nếu có)
+- Open a Pull Request on GitHub
+- Clearly describe your changes
+- Link to related Issues (if applicable)
 
-## 📌 Quy ước Commit
+## 📌 Commit Convention
 
-Sử dụng [Conventional Commits](https://www.conventionalcommits.org/):
+We use [Conventional Commits](https://www.conventionalcommits.org/):
 
-| Prefix | Mô tả |
-|--------|--------|
-| `feat:` | Tính năng mới |
-| `fix:` | Sửa lỗi |
-| `docs:` | Cập nhật tài liệu |
-| `style:` | Format code (không ảnh hưởng logic) |
-| `refactor:` | Tái cấu trúc code |
-| `test:` | Thêm/sửa test |
-| `chore:` | Cập nhật build, config, dependencies |
+| Prefix | Description |
+|--------|-------------|
+| `feat:` | New feature |
+| `fix:` | Bug fix |
+| `docs:` | Documentation update |
+| `style:` | Code formatting (no logic changes) |
+| `refactor:` | Code restructuring |
+| `test:` | Add/modify tests |
+| `chore:` | Build, config, or dependency updates |
 
-## 🏗️ Cấu trúc dự án
+## 🏗️ Project Structure
 
 ```
 SCA/
 ├── src/
 │   ├── app/          # Next.js App Router pages & API routes
-│   ├── components/   # React components tái sử dụng
+│   ├── components/   # Reusable React components
 │   └── lib/          # Utilities, helpers, Prisma client
 ├── prisma/           # Database schema & migrations
 ├── scripts/          # PowerShell scripts (setup, rules update)
@@ -90,31 +92,31 @@ SCA/
 └── TruffleHog/       # Secret scanner (auto-downloaded)
 ```
 
-## 🐛 Báo cáo lỗi
+## 🐛 Bug Reports
 
-Khi báo lỗi, vui lòng cung cấp:
+When reporting a bug, please include:
 
-1. **Môi trường**: OS, Node.js version, browser
-2. **Các bước tái hiện**: Mô tả chi tiết từng bước
-3. **Kết quả mong đợi** vs **Kết quả thực tế**
-4. **Screenshots** (nếu liên quan đến UI)
-5. **Log lỗi** (từ console hoặc terminal)
+1. **Environment**: OS, Node.js version, browser
+2. **Steps to reproduce**: Detailed step-by-step description
+3. **Expected result** vs **Actual result**
+4. **Screenshots** (if UI-related)
+5. **Error logs** (from console or terminal)
 
-## 💡 Đề xuất tính năng
+## 💡 Feature Requests
 
-- Mở Issue với tag `enhancement`
-- Mô tả rõ use case và lý do tính năng cần thiết
-- Nếu có thể, đưa ra mockup hoặc ví dụ
+- Open an Issue with the `enhancement` label
+- Describe the use case and why the feature is needed
+- If possible, provide mockups or examples
 
-## 🔒 Bảo mật
+## 🔒 Security
 
-Nếu bạn phát hiện lỗ hổng bảo mật, **KHÔNG** báo qua Issue công khai.  
-Xem [SECURITY.md](SECURITY.md) để biết cách báo cáo an toàn.
+If you discover a security vulnerability, **DO NOT** report it via a public Issue.  
+See [SECURITY.md](SECURITY.md) for responsible disclosure guidelines.
 
 ## 📜 License
 
-Bằng việc đóng góp, bạn đồng ý rằng code của mình sẽ được cấp phép theo [MIT License](LICENSE).
+By contributing, you agree that your code will be licensed under the [MIT License](LICENSE).
 
 ---
 
-Cảm ơn bạn đã đóng góp! 🚀
+Thank you for contributing! 🚀

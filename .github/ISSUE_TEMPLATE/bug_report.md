@@ -1,39 +1,39 @@
 ---
 name: 🐛 Bug Report
-about: Báo cáo lỗi để giúp cải thiện SCA
+about: Report a bug to help improve SCA / Báo cáo lỗi để cải thiện SCA
 title: "[Bug] "
 labels: bug
 assignees: ''
 ---
 
-## Mô tả lỗi
-<!-- Mô tả rõ ràng và ngắn gọn lỗi bạn gặp phải -->
+## Bug Description / Mô tả lỗi
+<!-- Clearly and briefly describe the bug / Mô tả rõ ràng và ngắn gọn lỗi bạn gặp phải -->
 
-## Các bước tái hiện
-1. Đi đến '...'
-2. Click vào '...'
-3. Cuộn xuống '...'
-4. Thấy lỗi
+## Steps to Reproduce / Các bước tái hiện
+1. Go to '...' / Đi đến '...'
+2. Click on '...' / Click vào '...'
+3. Scroll down to '...' / Cuộn xuống '...'
+4. See error / Thấy lỗi
 
-## Kết quả mong đợi
-<!-- Mô tả những gì bạn nghĩ sẽ xảy ra -->
+## Expected Behavior / Kết quả mong đợi
+<!-- Describe what you expected to happen / Mô tả những gì bạn nghĩ sẽ xảy ra -->
 
-## Kết quả thực tế
-<!-- Mô tả những gì thực sự xảy ra -->
+## Actual Behavior / Kết quả thực tế
+<!-- Describe what actually happened / Mô tả những gì thực sự xảy ra -->
 
 ## Screenshots
-<!-- Nếu có, thêm ảnh chụp màn hình để minh họa -->
+<!-- If applicable, add screenshots / Nếu có, thêm ảnh chụp màn hình -->
 
-## Môi trường
-- **OS**: [ví dụ: Windows 11]
-- **Node.js**: [ví dụ: 20.x]
-- **Browser**: [ví dụ: Chrome 120]
-- **SCA Version**: [ví dụ: 0.1.0]
+## Environment / Môi trường
+- **OS**: [e.g. Windows 11]
+- **Node.js**: [e.g. 20.x]
+- **Browser**: [e.g. Chrome 120]
+- **SCA Version**: [e.g. 0.1.0]
 
-## Log lỗi
+## Error Logs / Log lỗi
 ```
-Paste log lỗi tại đây
+Paste error logs here / Paste log lỗi tại đây
 ```
 
-## Thông tin bổ sung
-<!-- Bất kỳ thông tin nào khác liên quan đến lỗi -->
+## Additional Context / Thông tin bổ sung
+<!-- Any other relevant information / Bất kỳ thông tin nào khác liên quan -->

@@ -69,3 +69,7 @@ next-env.d.ts
 
 # Data
 /.sca-data
+
+# Repomix output
+repomix-output.xml
+repomix*.xml

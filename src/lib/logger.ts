@@ -22,7 +22,7 @@ class Logger {
     private progressListeners: ((update: ScanProgress) => void)[] = [];
 
     constructor() {
-        this.addLog('SYSTEM', 'Antigravity SCA Agent backend initialized');
+        this.addLog('SYSTEM', 'SCA Agent backend initialized');
     }
 
     addLog(level: LogEntry['level'], message: string) {

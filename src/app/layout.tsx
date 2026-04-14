@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Antigravity SCA | Static Code Analyzer",
+  title: "SCA | Static Code Analyzer",
   description: "Advanced multilingual static code analyzer with community-driven security rules.",
 };
 

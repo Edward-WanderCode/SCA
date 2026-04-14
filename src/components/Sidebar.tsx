@@ -37,7 +37,7 @@ export function Sidebar() {
         <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center glow-primary">
           <Cpu className="w-5 h-5 text-white" />
         </div>
-        <span className="text-xl font-bold gradient-text">Antigravity SCA</span>
+        <span className="text-xl font-bold gradient-text">SCA</span>
       </div>
 
       <nav className="flex flex-1 flex-col px-4 mt-4">

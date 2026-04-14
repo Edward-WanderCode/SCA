@@ -66,5 +66,5 @@ next-env.d.ts
 /TruffleHog
 /Scan
 
-#Telegram Topics
-/.sca-data
+# Data
+/.sca-data

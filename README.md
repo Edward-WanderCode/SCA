@@ -116,8 +116,6 @@ Copy `.env.example` to `.env` and configure:
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `DATABASE_URL` | No | SQLite database path (default: `file:./prisma/dev.db`) |
-| `NEXTAUTH_SECRET` | Yes | Secret key for NextAuth.js session encryption |
-| `NEXTAUTH_URL` | Yes | Application URL (default: `http://localhost:3000`) |
 | `TELEGRAM_BOT_TOKEN` | No | Telegram Bot API token for remote scanning |
 | `TELEGRAM_CHAT_ID` | No | Telegram chat ID for notifications |
 

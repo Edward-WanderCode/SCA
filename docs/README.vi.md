@@ -116,8 +116,6 @@ Sao chép `.env.example` thành `.env` và cấu hình:
 | Biến | Bắt buộc | Mô tả |
 |------|----------|-------|
 | `DATABASE_URL` | Không | Đường dẫn SQLite database (mặc định: `file:./prisma/dev.db`) |
-| `NEXTAUTH_SECRET` | Có | Khóa bí mật để mã hóa session NextAuth.js |
-| `NEXTAUTH_URL` | Có | URL ứng dụng (mặc định: `http://localhost:3000`) |
 | `TELEGRAM_BOT_TOKEN` | Không | Token API Telegram Bot để quét từ xa |
 | `TELEGRAM_CHAT_ID` | Không | ID chat Telegram để nhận thông báo |
 

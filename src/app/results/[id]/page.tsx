@@ -804,6 +804,16 @@ export default function ResultsDetailPage() {
                         <Download className="w-4 h-4" />
                         Export PDF
                     </button>
+                    <button
+                        onClick={() => {
+                            window.open(`/api/scan/sarif?id=${scanData.id}`, '_blank');
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-lg transition-colors text-sm"
+                        title="Export as SARIF 2.1.0 (compatible with GitHub, GitLab, Azure DevOps)"
+                    >
+                        <Download className="w-4 h-4" />
+                        Export SARIF
+                    </button>
                 </div>
             </div>
 

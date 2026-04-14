@@ -16,6 +16,7 @@ export interface ScanInput {
         duration: number;
         sastCount?: number;
         trivyCount?: number;
+        linterCount?: number;
         findings: {
             critical: number;
             high: number;
@@ -58,6 +59,7 @@ export async function saveScanToDatabase(scanData: ScanInput) {
                     duration: scanData.stats.duration,
                     sastCount: scanData.stats.sastCount || 0,
                     trivyCount: scanData.stats.trivyCount || 0,
+                    linterCount: (scanData.stats as any).linterCount || 0,
 
                     criticalCount: scanData.stats.findings.critical,
                     highCount: scanData.stats.findings.high,
@@ -115,6 +117,7 @@ export async function saveScanToDatabase(scanData: ScanInput) {
                     duration: scanData.stats.duration,
                     sastCount: scanData.stats.sastCount || 0,
                     trivyCount: scanData.stats.trivyCount || 0,
+                    linterCount: (scanData.stats as any).linterCount || 0,
 
                     criticalCount: scanData.stats.findings.critical,
                     highCount: scanData.stats.findings.high,
@@ -188,6 +191,7 @@ export async function getScanById(scanId: string) {
             duration: scan.duration,
             sastCount: scan.sastCount,
             trivyCount: scan.trivyCount,
+            linterCount: (scan as any).linterCount || 0,
             findings: {
                 critical: scan.criticalCount,
                 high: scan.highCount,

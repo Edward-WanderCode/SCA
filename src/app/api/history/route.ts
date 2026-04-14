@@ -33,6 +33,7 @@ export async function GET(request: Request) {
                 sastCount: scan.sastCount,
                 trivyCount: scan.trivyCount,
                 secretCount: scan.secretCount,
+                linterCount: (scan as any).linterCount || 0,
                 findings: {
                     critical: scan.criticalCount,
                     high: scan.highCount,

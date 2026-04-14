@@ -67,7 +67,7 @@ export async function POST(request: Request) {
 
         console.log(`Starting Opengrep + Trivy scan on: ${targetPath}`)
         const startTime = Date.now();
-        const { findings, languages, scannedLines, scannedFiles, logs, fileTree, sastCount, trivyCount, secretCount } = await runScan(targetPath, { ruleSet })
+        const { findings, languages, scannedLines, scannedFiles, logs, fileTree, sastCount, trivyCount, secretCount, linterCount } = await runScan(targetPath, { ruleSet })
         const duration = Math.round((Date.now() - startTime) / 1000);
 
         let previousFindings: any[] = []
@@ -150,6 +150,7 @@ export async function POST(request: Request) {
                 sastCount: sastCount,
                 trivyCount: trivyCount,
                 secretCount: secretCount,
+                linterCount: linterCount,
                 comparison: compareWithId ? {
                     new: currentFindings.filter(f => f.isNew).length,
                     fixed: fixedCount,

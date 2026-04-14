@@ -9,6 +9,7 @@ import {
     buildFileHashMap,
     FileHash
 } from './incremental-scan';
+import { runLinterScan } from './linter';
 
 const execAsync = promisify(exec);
 
@@ -459,6 +460,7 @@ export async function runScan(
     sastCount: number,
     trivyCount: number,
     secretCount: number,
+    linterCount: number,
     analysis?: any
 }> {
     console.log(`[Scanner] runScan called for path: ${targetPath}`);
@@ -656,7 +658,13 @@ export async function runScan(
         progressCallback?.({ progress: 85, stage: 'Running secret scan...', details: 'TruffleHog analyzing secrets' });
         const truffleHogFindingsUI = await runTruffleHogScan(targetPath, trufflehogBin);
 
-        const allFindings = [...finalSastFindings, ...trivyFindingsUI, ...truffleHogFindingsUI];
+        // Run linters for code quality analysis
+        progressCallback?.({ progress: 88, stage: 'Running code quality linters...', details: 'Analyzing code style and best practices' });
+        const linterFindingsRaw = await runLinterScan(targetPath, detectedLanguages);
+        const linterFindingsUI = await mapFindingsToUI(linterFindingsRaw as any, targetPath);
+        logs += `[Scanner] Linter findings: ${linterFindingsUI.length}\n`;
+
+        const allFindings = [...finalSastFindings, ...trivyFindingsUI, ...truffleHogFindingsUI, ...linterFindingsUI];
         const warnings: string[] = [];
         try { await execAsync(`${opengrepBin} --version`); } catch { warnings.push('Opengrep not found'); }
         try { await execAsync(`${trivyBin} --version`); } catch { warnings.push('Trivy not found'); }
@@ -675,6 +683,7 @@ export async function runScan(
             sastCount: finalSastFindings.length,
             trivyCount: trivyFindingsUI.length,
             secretCount: truffleHogFindingsUI.length,
+            linterCount: linterFindingsUI.length,
             analysis: analysisData
         };
 
@@ -683,7 +692,7 @@ export async function runScan(
         logs += `[Scanner Critical Error] ${errorMsg}\n`;
         return {
             findings: [], languages: [], warnings: [], scannedLines: 0, scannedFiles: 0,
-            logs, fileTree: [], sastCount: 0, trivyCount: 0, secretCount: 0
+            logs, fileTree: [], sastCount: 0, trivyCount: 0, secretCount: 0, linterCount: 0
         };
     }
 }

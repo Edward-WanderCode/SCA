@@ -9,7 +9,7 @@
 
 > **A comprehensive, self-hosted static code analysis platform** that combines SAST scanning, vulnerability detection, and secret leak prevention into a single, beautiful dashboard.
 
-🇻🇳 [Phiên bản tiếng Việt](README.vi.md)
+🇻🇳 [Phiên bản tiếng Việt](docs/README.vi.md)
 
 ---
 
@@ -132,11 +132,11 @@ SCA supports multiple scan input methods:
 
 ## 🤝 Contributing
 
-We welcome contributions! Please read our [Contributing Guide](CONTRIBUTING.md) for details.
+We welcome contributions! Please read our [Contributing Guide](docs/CONTRIBUTING.md) for details.
 
 - 🐛 [Report a bug](https://github.com/Edward-WanderCode/SCA/issues/new?template=bug_report.md)
 - 💡 [Request a feature](https://github.com/Edward-WanderCode/SCA/issues/new?template=feature_request.md)
-- 🔒 [Report a security vulnerability](SECURITY.md)
+- 🔒 [Report a security vulnerability](docs/SECURITY.md)
 
 ## 📜 License
 

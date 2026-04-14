@@ -115,7 +115,7 @@ See [SECURITY.md](SECURITY.md) for responsible disclosure guidelines.
 
 ## 📜 License
 
-By contributing, you agree that your code will be licensed under the [MIT License](LICENSE).
+By contributing, you agree that your code will be licensed under the [MIT License](../LICENSE).
 
 ---
 

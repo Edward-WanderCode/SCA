@@ -9,7 +9,7 @@
 
 > **Nền tảng phân tích mã nguồn tĩnh toàn diện, tự triển khai** — tích hợp quét SAST, phát hiện lỗ hổng bảo mật, và phòng chống rò rỉ bí mật trong một giao diện dashboard hiện đại.
 
-🇬🇧 [English version](README.md)
+🇬🇧 [English version](../README.md)
 
 ---
 
@@ -140,7 +140,7 @@ Chúng tôi chào đón mọi đóng góp! Vui lòng đọc [Hướng dẫn đó
 
 ## 📜 Giấy phép
 
-Dự án này được cấp phép theo [MIT License](LICENSE).
+Dự án này được cấp phép theo [MIT License](../LICENSE).
 
 ---
 

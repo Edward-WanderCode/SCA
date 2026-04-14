@@ -115,7 +115,7 @@ Xem [SECURITY.vi.md](SECURITY.vi.md) để biết cách báo cáo an toàn.
 
 ## 📜 Giấy phép
 
-Bằng việc đóng góp, bạn đồng ý rằng code của mình sẽ được cấp phép theo [MIT License](LICENSE).
+Bằng việc đóng góp, bạn đồng ý rằng code của mình sẽ được cấp phép theo [MIT License](../LICENSE).
 
 ---
 

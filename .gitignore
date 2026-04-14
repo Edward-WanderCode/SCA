@@ -65,3 +65,6 @@ next-env.d.ts
 !/temp/.gitkeep
 /TruffleHog
 /Scan
+
+#Telegram Topics
+/.sca-data

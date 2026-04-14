@@ -1,7 +1,27 @@
 {
-  "name": "sca-frontend",
+  "name": "sca-static-code-analyzer",
   "version": "0.1.0",
-  "private": true,
+  "description": "A comprehensive static code analysis platform with SAST, vulnerability scanning, and secret detection",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Edward-WanderCode/SCA.git"
+  },
+  "homepage": "https://github.com/Edward-WanderCode/SCA",
+  "bugs": {
+    "url": "https://github.com/Edward-WanderCode/SCA/issues"
+  },
+  "keywords": [
+    "static-analysis",
+    "sast",
+    "security",
+    "code-scanner",
+    "vulnerability",
+    "semgrep",
+    "trivy",
+    "trufflehog",
+    "nextjs"
+  ],
   "scripts": {
     "dev": "next dev",
     "build": "next build",

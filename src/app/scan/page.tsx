@@ -112,62 +112,13 @@ function ScanPageContent() {
     }
 
     const handleStartScan = async () => {
-        if (method === 'folder' && folderSource === 'client') {
-            if (!clientFiles || clientFiles.length === 0) {
-                alert('Please select a folder to scan')
+        if (method === 'folder') {
+            if (!folderPath) {
+                alert('Please enter or select a directory path to scan')
                 return
             }
-
-            setIsScanning(true)
-            setStep('scanning')
-            setScanStage('Uploading files...')
-            setScanDetails('Uploading local files to scanner...')
-            setProgress(0)
-
-            try {
-                const formData = new FormData()
-
-                // Determine folder name from the first file's path
-                let folderName = 'uploaded-project'
-                if (clientFiles.length > 0 && clientFiles[0].webkitRelativePath) {
-                    folderName = clientFiles[0].webkitRelativePath.split('/')[0]
-                }
-                formData.append('folderName', folderName)
-
-                // Convert FileList to Array and append
-                Array.from(clientFiles).forEach(file => {
-                    // Use webkitRelativePath if available to preserve structure
-                    const path = file.webkitRelativePath || file.name
-                    formData.append('files', file, path)
-                })
-
-                const res = await fetch('/api/upload', {
-                    method: 'POST',
-                    body: formData
-                })
-
-                if (!res.ok) {
-                    const err = await res.json()
-                    throw new Error(err.error || 'Upload failed')
-                }
-
-                const data = await res.json()
-
-                if (data.success && data.path) {
-                    // Start scan with the temp path on server
-                    startScanWithParams('folder', '', data.path)
-                } else {
-                    throw new Error('Upload succeeded but no path returned')
-                }
-            } catch (error: any) {
-                console.error('Upload Error:', error)
-                alert('Upload failed: ' + error.message)
-                setStep('setup')
-                setIsScanning(false)
-            }
-        } else {
-            startScanWithParams(method, repoUrl, folderPath, compareWithId || undefined)
         }
+        startScanWithParams(method, repoUrl, folderPath, compareWithId || undefined)
     }
 
     React.useEffect(() => {
@@ -287,87 +238,37 @@ function ScanPageContent() {
                                                 <FolderOpen className="w-8 h-8 text-primary" />
                                             </div>
                                             <div>
-                                                <h3 className="text-lg font-bold">Directory Scan</h3>
+                                                <h3 className="text-lg font-bold">Local Directory Scan</h3>
                                                 <p className="text-sm text-muted-foreground mt-1 max-w-sm">
-                                                    Analyze source code from a directory.
+                                                    Directly analyze source code from a directory without uploading.
                                                 </p>
+                                            </div>
 
-                                                <div className="flex gap-2 justify-center mt-4 bg-black/20 p-1 rounded-lg">
+                                            <div className="w-full max-w-lg space-y-3 mt-4">
+                                                <div className="flex items-center gap-2">
+                                                    <input
+                                                        key="server-folder-input"
+                                                        type="text"
+                                                        placeholder="e.g. D:\Code\MyProject"
+                                                        value={folderPath ?? ''}
+                                                        onChange={(e) => setFolderPath(e.target.value)}
+                                                        className="flex-1 bg-black/20 border border-white/10 rounded-lg px-4 py-3 outline-none focus:border-primary transition-colors font-mono text-sm"
+                                                    />
                                                     <button
-                                                        onClick={() => setFolderSource('server')}
-                                                        className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm transition-all ${folderSource === 'server' ? 'bg-primary text-primary-foreground shadow' : 'hover:bg-white/5 text-muted-foreground'
-                                                            }`}
+                                                        onClick={(e) => {
+                                                            e.preventDefault();
+                                                            setShowFileBrowser(true);
+                                                        }}
+                                                        className="px-6 py-3 bg-secondary hover:bg-secondary/90 text-white font-medium rounded-lg transition-colors flex items-center gap-2 whitespace-nowrap"
+                                                        title="Browse files on the machine"
                                                     >
-                                                        <Monitor className="w-4 h-4" />
-                                                        Server Host
-                                                    </button>
-                                                    <button
-                                                        onClick={() => setFolderSource('client')}
-                                                        className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm transition-all ${folderSource === 'client' ? 'bg-primary text-primary-foreground shadow' : 'hover:bg-white/5 text-muted-foreground'
-                                                            }`}
-                                                    >
-                                                        <Laptop className="w-4 h-4" />
-                                                        This Workstation
+                                                        <FolderOpen className="w-4 h-4" />
+                                                        Browse
                                                     </button>
                                                 </div>
                                             </div>
-
-                                            <div className="w-full max-w-lg space-y-3 mt-2">
-                                                {folderSource === 'server' ? (
-                                                    <>
-                                                        <div className="flex items-center gap-2">
-                                                            <input
-                                                                key="server-folder-input"
-                                                                type="text"
-                                                                placeholder="e.g. D:\Code\MyProject (Server Path)"
-                                                                value={folderPath ?? ''}
-                                                                onChange={(e) => setFolderPath(e.target.value)}
-                                                                className="flex-1 bg-black/20 border border-white/10 rounded-lg px-4 py-3 outline-none focus:border-primary transition-colors font-mono text-sm"
-                                                            />
-                                                            <button
-                                                                onClick={(e) => {
-                                                                    e.preventDefault();
-                                                                    setShowFileBrowser(true);
-                                                                }}
-                                                                className="px-6 py-3 bg-secondary hover:bg-secondary/90 text-white font-medium rounded-lg transition-colors flex items-center gap-2 whitespace-nowrap"
-                                                                title="Browse files on the server"
-                                                            >
-                                                                <FolderOpen className="w-4 h-4" />
-                                                                Browse Files
-                                                            </button>
-                                                        </div>
-                                                        <p className="text-xs text-muted-foreground text-left pl-1">
-                                                            <strong>Note:</strong> "Server Host" scans a folder already existing on the server.
-                                                        </p>
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <div className="border border-dashed border-white/20 rounded-lg p-6 hover:bg-white/5 transition-colors cursor-pointer relative">
-                                                            <input
-                                                                type="file"
-                                                                // @ts-ignore
-                                                                webkitdirectory=""
-                                                                directory=""
-                                                                multiple
-                                                                className="absolute inset-0 opacity-0 cursor-pointer"
-                                                                onChange={(e) => setClientFiles(e.target.files)}
-                                                            />
-                                                            <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                                                                <FileUp className={`w-8 h-8 ${clientFiles ? 'text-primary' : ''}`} />
-                                                                <span className="text-sm font-medium">
-                                                                    {clientFiles ? `${clientFiles.length} files selected` : 'Choose folder to upload...'}
-                                                                </span>
-                                                            </div>
-                                                        </div>
-                                                        <p className="text-xs text-muted-foreground text-left pl-1">
-                                                            <strong>Note:</strong> Files will be uploaded to a temporary secure location for scanning.
-                                                        </p>
-                                                    </>
-                                                )}
-                                            </div>
                                         </div>
                                     </div>
-
                                     <div className="bg-blue-500/5 border border-blue-500/20 rounded-lg p-4">
                                         <div className="flex gap-3">
                                             <Settings2 className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />

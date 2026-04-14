@@ -1,4 +1,4 @@
-import { exec, spawn } from 'child_process';
+import { execFile, spawn } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
 import fs from 'fs/promises';
@@ -11,7 +11,7 @@ import {
 } from './incremental-scan';
 import { runLinterScan } from './linter';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 export interface OpenGrepFinding {
     check_id: string;
@@ -184,13 +184,15 @@ async function runTrivyScan(targetPath: string, binPath: string = 'trivy'): Prom
 
         const cacheDir = path.join(process.cwd(), 'Trivy', 'cache');
 
-        const { stdout } = await execAsync(
-            `${binPath} fs --format json --quiet --skip-db-update --cache-dir "${cacheDir}" "${targetPath}"`,
+        // SECURITY: Use execFileAsync with argument array to prevent shell injection
+        const { stdout } = await execFileAsync(
+            binPath.replace(/"/g, ''), // Strip any surrounding quotes from bin path
+            ['fs', '--format', 'json', '--quiet', '--skip-db-update', '--cache-dir', cacheDir, targetPath],
             {
                 maxBuffer: 50 * 1024 * 1024
             }
         ).catch(err => {
-            if (err.message?.includes('not recognized') || err.message?.includes('command not found')) {
+            if (err.code === 'ENOENT' || err.message?.includes('not recognized') || err.message?.includes('command not found')) {
                 console.warn('[Scanner] Trivy not found. Skipping dependency scan.');
                 return { stdout: '' };
             }
@@ -256,11 +258,13 @@ async function runTruffleHogScan(targetPath: string, binPath: string = 'truffleh
     try {
         console.log(`[Scanner] Running TruffleHog scan with ${binPath} on: ${targetPath}`);
         
-        const { stdout } = await execAsync(
-            `"${binPath}" filesystem "${targetPath}" --no-update --json`,
+        // SECURITY: Use execFileAsync with argument array to prevent shell injection
+        const { stdout } = await execFileAsync(
+            binPath.replace(/"/g, ''),
+            ['filesystem', targetPath, '--no-update', '--json'],
             { maxBuffer: 50 * 1024 * 1024 }
         ).catch(err => {
-            if (err.message?.includes('not recognized') || err.message?.includes('command not found')) {
+            if (err.code === 'ENOENT' || err.message?.includes('not recognized') || err.message?.includes('command not found')) {
                 console.warn('[Scanner] TruffleHog not found. Skipping secret scan.');
                 return { stdout: '' };
             }
@@ -540,13 +544,13 @@ export async function runScan(
         const possibleTrivyPaths = [portableTrivy, 'trivy'];
         const possibleTruffleHogPaths = [portableTruffleHog, 'trufflehog'];
 
+        // SECURITY: Use execFileAsync for version checks (no shell interpolation)
         let opengrepBin = 'opengrep';
         for (const p of possibleOpengrepPaths) {
             try {
-                const cmd = p.includes(' ') ? `"${p}"` : p;
-                await execAsync(`${cmd} --version`);
+                await execFileAsync(p, ['--version']);
                 logs += `[Scanner] Using Opengrep: ${p}\n`;
-                opengrepBin = cmd;
+                opengrepBin = p;
                 break;
             } catch { }
         }
@@ -554,10 +558,9 @@ export async function runScan(
         let trivyBin = 'trivy';
         for (const p of possibleTrivyPaths) {
             try {
-                const cmd = p.includes(' ') ? `"${p}"` : p;
-                await execAsync(`${cmd} --version`);
+                await execFileAsync(p, ['--version']);
                 logs += `[Scanner] Using Trivy: ${p}\n`;
-                trivyBin = cmd;
+                trivyBin = p;
                 break;
             } catch { }
         }
@@ -565,10 +568,9 @@ export async function runScan(
         let trufflehogBin = 'trufflehog';
         for (const p of possibleTruffleHogPaths) {
             try {
-                const cmd = p.includes(' ') ? `"${p}"` : p;
-                await execAsync(`${cmd} --version`);
+                await execFileAsync(p, ['--version']);
                 logs += `[Scanner] Using TruffleHog: ${p}\n`;
-                trufflehogBin = cmd;
+                trufflehogBin = p;
                 break;
             } catch { }
         }
@@ -666,9 +668,9 @@ export async function runScan(
 
         const allFindings = [...finalSastFindings, ...trivyFindingsUI, ...truffleHogFindingsUI, ...linterFindingsUI];
         const warnings: string[] = [];
-        try { await execAsync(`${opengrepBin} --version`); } catch { warnings.push('Opengrep not found'); }
-        try { await execAsync(`${trivyBin} --version`); } catch { warnings.push('Trivy not found'); }
-        try { await execAsync(`${trufflehogBin} --version`); } catch { warnings.push('TruffleHog not found'); }
+        try { await execFileAsync(opengrepBin, ['--version']); } catch { warnings.push('Opengrep not found'); }
+        try { await execFileAsync(trivyBin, ['--version']); } catch { warnings.push('Trivy not found'); }
+        try { await execFileAsync(trufflehogBin, ['--version']); } catch { warnings.push('TruffleHog not found'); }
 
         const fileTree = await generateFileTree(targetPath);
 
@@ -701,11 +703,17 @@ export async function createTemporaryRepo(url: string): Promise<string> {
     const tempId = Math.random().toString(36).substring(7);
     const tempPath = path.join(process.cwd(), 'temp', tempId);
 
+    // Basic URL validation to prevent injection
+    if (!/^https?:\/\/.+/i.test(url) && !/^git@.+/i.test(url)) {
+        throw new Error(`Invalid repository URL: ${url}`);
+    }
+
     await fs.mkdir(tempPath, { recursive: true });
 
     try {
         console.log(`[Scanner] Cloning ${url} to ${tempPath}`);
-        await execAsync(`git clone --depth 1 "${url}" "${tempPath}"`);
+        // SECURITY: Use execFileAsync with argument array to prevent shell injection
+        await execFileAsync('git', ['clone', '--depth', '1', url, tempPath]);
         return tempPath;
     } catch {
         throw new Error(`Failed to clone repository: ${url}`);

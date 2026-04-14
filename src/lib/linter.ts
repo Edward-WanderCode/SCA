@@ -6,14 +6,63 @@
  * 
  * Each linter output is normalized into the same OpenGrepFinding format
  * used by the rest of the scanner pipeline.
+ * 
+ * SECURITY: All external commands use spawn/execFile with argument arrays
+ * to prevent shell injection attacks.
  */
 
-import { exec } from 'child_process';
+import { execFile, spawn } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
 import fs from 'fs/promises';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
+
+/**
+ * Safe command executor using execFile (no shell interpolation).
+ * Tries multiple binaries in order and returns the first successful stdout.
+ */
+async function safeExec(
+    candidates: { bin: string; args: string[] }[],
+    options: { cwd?: string; timeout?: number; maxBuffer?: number } = {}
+): Promise<{ stdout: string; success: boolean }> {
+    const { cwd, timeout = 120000, maxBuffer = 50 * 1024 * 1024 } = options;
+
+    for (const { bin, args } of candidates) {
+        try {
+            const result = await execFileAsync(bin, args, {
+                maxBuffer,
+                cwd,
+                timeout,
+                // No shell: true — arguments are passed as an array, safe from injection
+            });
+            return { stdout: result.stdout, success: true };
+        } catch (err: any) {
+            // Many linters exit with code 1 when they find issues — this is normal
+            if (err.stdout && err.stdout.trim().length > 0) {
+                const trimmed = err.stdout.trim();
+                if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+                    return { stdout: err.stdout, success: true };
+                }
+            }
+            // Command not found, try next candidate
+            if (
+                err.code === 'ENOENT' ||
+                err.message?.includes('not recognized') ||
+                err.message?.includes('command not found') ||
+                err.message?.includes('ENOENT')
+            ) {
+                continue;
+            }
+            // Other error with stdout available
+            if (err.stdout) {
+                return { stdout: err.stdout, success: true };
+            }
+        }
+    }
+
+    return { stdout: '', success: false };
+}
 
 export interface LinterFinding {
     check_id: string;
@@ -39,46 +88,22 @@ async function runESLint(targetPath: string): Promise<LinterFinding[]> {
     try {
         console.log(`[Linter] Running ESLint on: ${targetPath}`);
 
-        // Try to find eslint: portable → npx → global
-        const possibleCommands = [
-            `npx eslint --no-eslintrc --env es2021,node,browser --format json --no-error-on-unmatched-pattern "${targetPath}" --ext .js,.jsx,.ts,.tsx`,
-            `eslint --no-eslintrc --env es2021,node,browser --format json --no-error-on-unmatched-pattern "${targetPath}" --ext .js,.jsx,.ts,.tsx`,
+        const eslintArgs = [
+            '--no-eslintrc', '--env', 'es2021,node,browser',
+            '--format', 'json', '--no-error-on-unmatched-pattern',
+            targetPath,
+            '--ext', '.js,.jsx,.ts,.tsx',
         ];
 
-        let stdout = '';
-        let commandWorked = false;
+        const { stdout, success } = await safeExec(
+            [
+                { bin: 'npx', args: ['eslint', ...eslintArgs] },
+                { bin: 'eslint', args: eslintArgs },
+            ],
+            { cwd: targetPath }
+        );
 
-        for (const cmd of possibleCommands) {
-            try {
-                const result = await execAsync(cmd, {
-                    maxBuffer: 50 * 1024 * 1024,
-                    cwd: targetPath,
-                    timeout: 120000,
-                });
-                stdout = result.stdout;
-                commandWorked = true;
-                break;
-            } catch (err: any) {
-                // ESLint exits with code 1 when it finds lint errors - this is normal
-                if (err.stdout && err.stdout.trim().startsWith('[')) {
-                    stdout = err.stdout;
-                    commandWorked = true;
-                    break;
-                }
-                // Command not found, try next
-                if (err.message?.includes('not recognized') || err.message?.includes('command not found') || err.message?.includes('ENOENT')) {
-                    continue;
-                }
-                // Other error with stdout available
-                if (err.stdout) {
-                    stdout = err.stdout;
-                    commandWorked = true;
-                    break;
-                }
-            }
-        }
-
-        if (!commandWorked || !stdout.trim()) {
+        if (!success || !stdout.trim()) {
             console.warn('[Linter] ESLint not available or no output.');
             return [];
         }
@@ -130,42 +155,16 @@ async function runRuff(targetPath: string): Promise<LinterFinding[]> {
     try {
         console.log(`[Linter] Running Ruff on: ${targetPath}`);
 
-        const possibleCommands = [
-            `ruff check --output-format json --no-fix "${targetPath}"`,
-            `python -m ruff check --output-format json --no-fix "${targetPath}"`,
-        ];
+        const ruffArgs = ['check', '--output-format', 'json', '--no-fix', targetPath];
 
-        let stdout = '';
-        let commandWorked = false;
+        const { stdout, success } = await safeExec(
+            [
+                { bin: 'ruff', args: ruffArgs },
+                { bin: 'python', args: ['-m', 'ruff', ...ruffArgs] },
+            ]
+        );
 
-        for (const cmd of possibleCommands) {
-            try {
-                const result = await execAsync(cmd, {
-                    maxBuffer: 50 * 1024 * 1024,
-                    timeout: 120000,
-                });
-                stdout = result.stdout;
-                commandWorked = true;
-                break;
-            } catch (err: any) {
-                // Ruff exits with code 1 when it finds issues
-                if (err.stdout && err.stdout.trim().startsWith('[')) {
-                    stdout = err.stdout;
-                    commandWorked = true;
-                    break;
-                }
-                if (err.message?.includes('not recognized') || err.message?.includes('command not found') || err.message?.includes('ENOENT')) {
-                    continue;
-                }
-                if (err.stdout) {
-                    stdout = err.stdout;
-                    commandWorked = true;
-                    break;
-                }
-            }
-        }
-
-        if (!commandWorked || !stdout.trim()) {
+        if (!success || !stdout.trim()) {
             console.warn('[Linter] Ruff not available or no output.');
             return [];
         }
@@ -246,43 +245,17 @@ async function runGolangCILint(targetPath: string): Promise<LinterFinding[]> {
             }
         }
 
-        const possibleCommands = [
-            `golangci-lint run --out-format json --timeout 2m ./...`,
-            `golangci-lint.exe run --out-format json --timeout 2m ./...`,
-        ];
+        const golintArgs = ['run', '--out-format', 'json', '--timeout', '2m', './...'];
 
-        let stdout = '';
-        let commandWorked = false;
+        const { stdout, success } = await safeExec(
+            [
+                { bin: 'golangci-lint', args: golintArgs },
+                { bin: 'golangci-lint.exe', args: golintArgs },
+            ],
+            { cwd: targetPath, timeout: 180000 }
+        );
 
-        for (const cmd of possibleCommands) {
-            try {
-                const result = await execAsync(cmd, {
-                    maxBuffer: 50 * 1024 * 1024,
-                    cwd: targetPath,
-                    timeout: 180000,
-                });
-                stdout = result.stdout;
-                commandWorked = true;
-                break;
-            } catch (err: any) {
-                // golangci-lint exits with code 1 when issues found
-                if (err.stdout && err.stdout.trim().startsWith('{')) {
-                    stdout = err.stdout;
-                    commandWorked = true;
-                    break;
-                }
-                if (err.message?.includes('not recognized') || err.message?.includes('command not found') || err.message?.includes('ENOENT')) {
-                    continue;
-                }
-                if (err.stdout) {
-                    stdout = err.stdout;
-                    commandWorked = true;
-                    break;
-                }
-            }
-        }
-
-        if (!commandWorked || !stdout.trim()) {
+        if (!success || !stdout.trim()) {
             console.warn('[Linter] GolangCI-Lint not available or no output.');
             return [];
         }

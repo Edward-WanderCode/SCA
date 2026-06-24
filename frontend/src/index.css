@@ -125,6 +125,54 @@ body::before {
   background: var(--text-muted);
 }
 
+/* === Scrollable Containers === */
+.findings-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-primary) var(--bg-primary);
+}
+
+.findings-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.findings-scroll::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+
+.findings-scroll::-webkit-scrollbar-thumb {
+  background: var(--border-primary);
+  border-radius: 4px;
+  transition: background var(--transition-fast);
+}
+
+.findings-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* Findings Detail Scrollbar */
+.findings-detail-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-primary) var(--bg-primary);
+}
+
+.findings-detail-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.findings-detail-scroll::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+
+.findings-detail-scroll::-webkit-scrollbar-thumb {
+  background: var(--border-primary);
+  border-radius: 4px;
+  transition: background var(--transition-fast);
+}
+
+.findings-detail-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
 /* === Glass Card === */
 .glass-card {
   background: var(--gradient-card);
@@ -469,4 +517,89 @@ body::before {
 
 .mono {
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+/* === Responsive Design === */
+
+/* Mobile devices (< 640px) */
+@media (max-width: 639px) {
+  html {
+    font-size: 14px;
+  }
+
+  body {
+    font-size: 0.875rem;
+  }
+
+  .input,
+  .btn,
+  select,
+  textarea {
+    font-size: 16px; /* Prevents zoom on iOS */
+    padding: 10px 12px;
+  }
+
+  .card {
+    border-radius: 12px;
+    padding: 16px;
+  }
+
+  .data-table {
+    font-size: 0.75rem;
+  }
+
+  .data-table th,
+  .data-table td {
+    padding: 8px 4px;
+  }
+}
+
+/* Tablets (640px - 1023px) */
+@media (min-width: 640px) and (max-width: 1023px) {
+  .card {
+    padding: 20px;
+  }
+
+  .data-table {
+    font-size: 0.85rem;
+  }
+}
+
+/* Large screens (1024px+) */
+@media (min-width: 1024px) {
+  .card {
+    padding: 24px;
+  }
+}
+
+/* Touch device optimization */
+@media (hover: none) and (pointer: coarse) {
+  .btn,
+  a,
+  [role="button"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+/* High DPI screens */
+@media (min-width: 1920px) {
+  html {
+    font-size: 18px;
+  }
+
+  .card {
+    padding: 32px;
+  }
+}
+
+/* Print styles */
+@media print {
+  body::before {
+    display: none;
+  }
+
+  .no-print {
+    display: none;
+  }
 }

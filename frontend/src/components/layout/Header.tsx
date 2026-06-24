@@ -1,7 +1,8 @@
 /* Top header bar */
 
-import { Search, Bell, RefreshCw } from 'lucide-react';
+import { Search, Bell, RefreshCw, Menu } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
+import { useState, useEffect } from 'react';
 
 const pageTitles: Record<string, string> = {
   '/': 'Dashboard',
@@ -11,7 +12,12 @@ const pageTitles: Record<string, string> = {
   '/settings': 'Settings',
 };
 
-export default function Header() {
+interface HeaderProps {
+  onMenuClick: () => void;
+  isMobile: boolean;
+}
+
+export default function Header({ onMenuClick, isMobile }: HeaderProps) {
   const location = useLocation();
   const title = pageTitles[location.pathname] || 'SCA Platform';
 
@@ -19,7 +25,7 @@ export default function Header() {
     <header
       style={{
         height: 72,
-        padding: '0 32px',
+        padding: isMobile ? '0 16px' : '0 32px',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
@@ -29,45 +35,71 @@ export default function Header() {
         position: 'sticky',
         top: 0,
         zIndex: 40,
+        gap: 16,
       }}
     >
-      <div>
-        <h2 style={{ fontSize: '1.25rem', fontWeight: 700 }}>{title}</h2>
-        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>
-          Static Code Analysis Platform
-        </p>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+        {isMobile && (
+          <button
+            onClick={onMenuClick}
+            style={{
+              padding: 8,
+              background: 'none',
+              border: 'none',
+              color: 'var(--text-muted)',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Menu size={20} />
+          </button>
+        )}
+        <div style={{ minWidth: 0 }}>
+          <h2 style={{ fontSize: isMobile ? '1rem' : '1.25rem', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {title}
+          </h2>
+          {!isMobile && (
+            <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>
+              Static Code Analysis Platform
+            </p>
+          )}
+        </div>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        {/* Search */}
-        <div style={{ position: 'relative' }}>
-          <Search
-            size={16}
-            style={{
-              position: 'absolute',
-              left: 12,
-              top: '50%',
-              transform: 'translateY(-50%)',
-              color: 'var(--text-muted)',
-            }}
-          />
-          <input
-            className="input"
-            placeholder="Search findings..."
-            style={{
-              width: 260,
-              paddingLeft: 36,
-              height: 38,
-              fontSize: '0.8125rem',
-              background: 'rgba(15, 23, 42, 0.6)',
-            }}
-          />
-        </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 12 }}>
+        {/* Search - Hidden on mobile, smaller on tablet */}
+        {!isMobile && (
+          <div style={{ position: 'relative' }}>
+            <Search
+              size={16}
+              style={{
+                position: 'absolute',
+                left: 12,
+                top: '50%',
+                transform: 'translateY(-50%)',
+                color: 'var(--text-muted)',
+              }}
+            />
+            <input
+              className="input"
+              placeholder="Search findings..."
+              style={{
+                width: 260,
+                paddingLeft: 36,
+                height: 38,
+                fontSize: '0.8125rem',
+                background: 'rgba(15, 23, 42, 0.6)',
+              }}
+            />
+          </div>
+        )}
 
         {/* Refresh */}
         <button
           className="btn btn-ghost"
-          style={{ padding: 8, borderRadius: 8 }}
+          style={{ padding: 8, borderRadius: 8, flexShrink: 0 }}
           title="Refresh data"
         >
           <RefreshCw size={18} />
@@ -76,7 +108,7 @@ export default function Header() {
         {/* Notifications */}
         <button
           className="btn btn-ghost"
-          style={{ padding: 8, borderRadius: 8, position: 'relative' }}
+          style={{ padding: 8, borderRadius: 8, position: 'relative', flexShrink: 0 }}
           title="Notifications"
         >
           <Bell size={18} />
@@ -95,23 +127,26 @@ export default function Header() {
         </button>
 
         {/* User Avatar */}
-        <div
-          style={{
-            width: 36,
-            height: 36,
-            borderRadius: '50%',
-            background: 'var(--gradient-primary)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '0.875rem',
-            fontWeight: 600,
-            cursor: 'pointer',
-            marginLeft: 4,
-          }}
-        >
-          A
-        </div>
+        {!isMobile && (
+          <div
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: '50%',
+              background: 'var(--gradient-primary)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '0.875rem',
+              fontWeight: 600,
+              cursor: 'pointer',
+              marginLeft: 4,
+              flexShrink: 0,
+            }}
+          >
+            A
+          </div>
+        )}
       </div>
     </header>
   );

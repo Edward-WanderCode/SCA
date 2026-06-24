@@ -11,6 +11,7 @@ import {
   Shield,
   ChevronLeft,
   ChevronRight,
+  X,
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -22,28 +23,18 @@ const navItems = [
   { path: '/settings', icon: Settings, label: 'Settings' },
 ];
 
-export default function Sidebar() {
+interface SidebarProps {
+  isOpen: boolean;
+  onClose: () => void;
+  isMobile: boolean;
+}
+
+export default function Sidebar({ isOpen, onClose, isMobile }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
   const location = useLocation();
 
-  return (
-    <motion.aside
-      initial={false}
-      animate={{ width: collapsed ? 72 : 260 }}
-      transition={{ duration: 0.25, ease: 'easeInOut' }}
-      style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        height: '100vh',
-        background: 'linear-gradient(180deg, rgba(15, 23, 42, 0.98) 0%, rgba(10, 14, 26, 0.98) 100%)',
-        borderRight: '1px solid var(--border-primary)',
-        display: 'flex',
-        flexDirection: 'column',
-        zIndex: 50,
-        overflow: 'hidden',
-      }}
-    >
+  const sidebarContent = (
+    <>
       {/* Logo */}
       <div
         style={{
@@ -83,6 +74,21 @@ export default function Sidebar() {
             </p>
           </motion.div>
         )}
+        {isMobile && isOpen && (
+          <button
+            onClick={onClose}
+            style={{
+              marginLeft: 'auto',
+              padding: 4,
+              background: 'none',
+              border: 'none',
+              color: 'var(--text-muted)',
+              cursor: 'pointer',
+            }}
+          >
+            <X size={20} />
+          </button>
+        )}
       </div>
 
       {/* Navigation */}
@@ -95,6 +101,7 @@ export default function Sidebar() {
             <NavLink
               key={item.path}
               to={item.path}
+              onClick={() => isMobile && onClose()}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -154,24 +161,91 @@ export default function Sidebar() {
       </nav>
 
       {/* Collapse Toggle */}
-      <button
-        onClick={() => setCollapsed(!collapsed)}
-        style={{
-          margin: '12px',
-          padding: 8,
-          borderRadius: 8,
-          border: '1px solid var(--border-primary)',
-          background: 'var(--bg-secondary)',
-          color: 'var(--text-muted)',
-          cursor: 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          transition: 'all 200ms ease',
-        }}
-      >
-        {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
-      </button>
+      {!isMobile && (
+        <button
+          onClick={() => setCollapsed(!collapsed)}
+          style={{
+            margin: '12px',
+            padding: 8,
+            borderRadius: 8,
+            border: '1px solid var(--border-primary)',
+            background: 'var(--bg-secondary)',
+            color: 'var(--text-muted)',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            transition: 'all 200ms ease',
+          }}
+        >
+          {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+        </button>
+      )}
+    </>
+  );
+
+  if (isMobile) {
+    return (
+      <>
+        {/* Overlay */}
+        {isOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={onClose}
+            style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(0, 0, 0, 0.5)',
+              zIndex: 40,
+            }}
+          />
+        )}
+        {/* Mobile Sidebar */}
+        <motion.aside
+          initial={{ x: -260 }}
+          animate={{ x: isOpen ? 0 : -260 }}
+          transition={{ duration: 0.25, ease: 'easeInOut' }}
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            width: 260,
+            height: '100vh',
+            background: 'linear-gradient(180deg, rgba(15, 23, 42, 0.98) 0%, rgba(10, 14, 26, 0.98) 100%)',
+            borderRight: '1px solid var(--border-primary)',
+            display: 'flex',
+            flexDirection: 'column',
+            zIndex: 45,
+            overflowY: 'auto',
+          }}
+        >
+          {sidebarContent}
+        </motion.aside>
+      </>
+    );
+  }
+
+  return (
+    <motion.aside
+      initial={false}
+      animate={{ width: collapsed ? 72 : 260 }}
+      transition={{ duration: 0.25, ease: 'easeInOut' }}
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        height: '100vh',
+        background: 'linear-gradient(180deg, rgba(15, 23, 42, 0.98) 0%, rgba(10, 14, 26, 0.98) 100%)',
+        borderRight: '1px solid var(--border-primary)',
+        display: 'flex',
+        flexDirection: 'column',
+        zIndex: 50,
+        overflow: 'hidden',
+      }}
+    >
+      {sidebarContent}
     </motion.aside>
   );
 }

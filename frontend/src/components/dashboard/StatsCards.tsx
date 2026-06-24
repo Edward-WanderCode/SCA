@@ -71,6 +71,24 @@ const cardConfig = [
 ];
 
 export default function StatsCards({ stats, isLoading }: StatsCardsProps) {
+  const [gridCols, setGridCols] = useState('repeat(4, 1fr)');
+
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth < 640) {
+        setGridCols('1fr');
+      } else if (window.innerWidth < 1024) {
+        setGridCols('repeat(2, 1fr)');
+      } else {
+        setGridCols('repeat(4, 1fr)');
+      }
+    };
+
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   const getValue = (key: string): number => {
     if (!stats) return 0;
     if (key === 'critical') return stats.findings_by_severity?.critical || 0;
@@ -78,7 +96,7 @@ export default function StatsCards({ stats, isLoading }: StatsCardsProps) {
   };
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 20 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: gridCols, gap: 20 }}>
       {cardConfig.map((card, index) => (
         <motion.div
           key={card.key}
@@ -158,6 +176,7 @@ export default function StatsCards({ stats, isLoading }: StatsCardsProps) {
                 alignItems: 'center',
                 justifyContent: 'center',
                 boxShadow: `0 4px 12px ${card.borderColor}`,
+                flexShrink: 0,
               }}
             >
               <card.icon size={22} color="white" />

@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Filter, Search, FileCode, ExternalLink, ChevronRight, AlertTriangle, Shield, Key, Download, ChevronDown } from 'lucide-react';
+import { Filter, Search, FileCode, ExternalLink, ChevronRight, AlertTriangle, Shield, Key, Download, ChevronDown, ChevronLeft } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { findingsApi, projectsApi } from '@/lib/api';
 import { severityConfig, timeAgo } from '@/lib/utils';
@@ -213,25 +213,35 @@ export default function FindingsPage() {
 
         <div style={{ flex: 1 }} />
         <span style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
-          {displayFindings.length} findings
+          {displayFindings.length} / {data?.total || 0} findings
         </span>
       </div>
 
       {/* Split View: List + Detail */}
-      <div style={{ display: 'grid', gridTemplateColumns: selectedFinding ? '1fr 1fr' : '1fr', gap: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: selectedFinding ? '1fr 1fr' : '1fr', gap: 20, minHeight: 0, height: 'calc(100vh - 280px)' }}>
         {/* Findings List */}
         <motion.div
           className="glass-card"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          style={{ overflow: 'hidden' }}
+          style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0, height: '100%' }}
         >
           {displayFindings.length === 0 ? (
             <div style={{ padding: 48, textAlign: 'center', color: 'var(--text-muted)' }}>
               No findings found
             </div>
           ) : (
-            displayFindings.map((finding, idx) => {
+            <div
+              className="findings-scroll"
+              style={{
+                flex: 1,
+                overflowY: 'auto',
+                overflowX: 'hidden',
+                minHeight: 0,
+                scrollBehavior: 'smooth',
+              }}
+            >
+              {displayFindings.map((finding, idx) => {
               const sevConf = severityConfig[finding.severity];
               const isSelected = selectedFinding?.id === finding.id;
 
@@ -321,17 +331,91 @@ export default function FindingsPage() {
                   </div>
                 </motion.div>
               );
-            })
+            })}
+            </div>
+          )}
+          
+          {/* Pagination Controls */}
+          {displayFindings.length > 0 && (
+            <div style={{
+              padding: '16px 20px',
+              borderTop: '1px solid var(--border-primary)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 16,
+            }}>
+              <button
+                className="btn btn-secondary"
+                onClick={() => setPage(Math.max(1, page - 1))}
+                disabled={page === 1}
+                style={{
+                  height: 36,
+                  fontSize: '0.8125rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  opacity: page === 1 ? 0.5 : 1,
+                  cursor: page === 1 ? 'not-allowed' : 'pointer',
+                  padding: '0 12px',
+                }}
+              >
+                <ChevronLeft size={14} />
+                Previous
+              </button>
+              
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                fontSize: '0.8125rem',
+                color: 'var(--text-secondary)',
+              }}>
+                <span>Page <strong style={{ color: 'var(--text-primary)' }}>{page}</strong></span>
+                <span>of</span>
+                <strong style={{ color: 'var(--text-primary)' }}>{Math.ceil((data?.total || 0) / 20)}</strong>
+                <span style={{ color: 'var(--text-muted)', marginLeft: 8 }}>
+                  ({data?.total || 0} total)
+                </span>
+              </div>
+              
+              <button
+                className="btn btn-secondary"
+                onClick={() => setPage(page + 1)}
+                disabled={!data?.items || data.items.length < 20}
+                style={{
+                  height: 36,
+                  fontSize: '0.8125rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  opacity: !data?.items || data.items.length < 20 ? 0.5 : 1,
+                  cursor: !data?.items || data.items.length < 20 ? 'not-allowed' : 'pointer',
+                  padding: '0 12px',
+                }}
+              >
+                Next
+                <ChevronRight size={14} />
+              </button>
+            </div>
           )}
         </motion.div>
 
         {/* Finding Detail Panel */}
         {selectedFinding && (
           <motion.div
-            className="glass-card"
+            className="glass-card findings-detail-scroll"
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
-            style={{ padding: 24, position: 'sticky', top: 96, alignSelf: 'start' }}
+            style={{ 
+              padding: 24, 
+              position: 'sticky', 
+              top: 0,
+              height: 'fit-content',
+              maxHeight: 'calc(100vh - 200px)',
+              overflowY: 'auto',
+              alignSelf: 'start'
+            }}
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
               <span className={`badge badge-${selectedFinding.severity}`}>

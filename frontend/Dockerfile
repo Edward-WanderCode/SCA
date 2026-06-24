@@ -11,7 +11,8 @@ FROM nginx:alpine
 COPY --from=build /app/dist /usr/share/nginx/html
 
 # Nginx config for SPA routing
-RUN echo 'server { \
+RUN echo 'resolver 127.0.0.11 valid=10s; \
+server { \
     listen 3000; \
     root /usr/share/nginx/html; \
     index index.html; \
@@ -20,7 +21,8 @@ RUN echo 'server { \
         try_files $uri $uri/ /index.html; \
     } \
     location /api { \
-        proxy_pass http://backend:8000; \
+        set $backend_upstream http://backend:8000; \
+        proxy_pass $backend_upstream; \
         proxy_http_version 1.1; \
         proxy_set_header Upgrade $http_upgrade; \
         proxy_set_header Connection "upgrade"; \

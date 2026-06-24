@@ -7,8 +7,17 @@ import SeverityChart from '@/components/dashboard/SeverityChart';
 import TrendChart from '@/components/dashboard/TrendChart';
 import RecentScans from '@/components/dashboard/RecentScans';
 import TopVulns from '@/components/dashboard/TopVulns';
+import { useState, useEffect } from 'react';
 
 export default function DashboardPage() {
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   const { data: stats, isLoading: statsLoading } = useQuery({
     queryKey: ['dashboard-stats'],
     queryFn: dashboardApi.getStats,
@@ -32,14 +41,22 @@ export default function DashboardPage() {
       {/* Stats Cards */}
       <StatsCards stats={stats} isLoading={statsLoading} />
 
-      {/* Charts Row */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.6fr', gap: 20 }}>
+      {/* Charts Row - Responsive */}
+      <div style={{ 
+        display: 'grid', 
+        gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(400px, 1fr))',
+        gap: 20,
+      }}>
         <SeverityChart stats={stats} />
         <TrendChart trends={trends} />
       </div>
 
-      {/* Activity Row */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 20 }}>
+      {/* Activity Row - Responsive */}
+      <div style={{ 
+        display: 'grid', 
+        gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(350px, 1fr))',
+        gap: 20,
+      }}>
         <RecentScans activity={activity} />
         <TopVulns activity={activity} />
       </div>

@@ -4,12 +4,11 @@ Nền tảng phân tích mã nguồn tĩnh toàn diện, tự triển khai với
 
 ## ✨ Tính năng
 
-- 🔍 **SAST Scanning** - Quét mã nguồn với Semgrep/OpenGrep
-- 🛡️ **Vulnerability Detection** - Phát hiện CVE trong dependencies và containers với Trivy
-- 🔑 **Secret Detection** - Phát hiện API keys, tokens, credentials với TruffleHog
-- 📊 **Modern Dashboard** - Giao diện trực quan với analytics và reporting
-- ⚡ **Async Processing** - Quét bất đồng bộ với Celery
-- 🐳 **Docker Ready** - Dễ dàng triển khai với Docker Compose
+- ⚡ **Combined Scanning (Quét kết hợp)** - Luôn tự động kết hợp toàn bộ các bộ máy quét (SAST với OpenGrep, Vulnerability với Trivy, và Secrets với TruffleHog) vào trong một phiên quét duy nhất.
+- 📊 **Báo cáo HTML Chuyên nghiệp** - Tự động tạo và gửi kèm file báo cáo HTML tĩnh độc lập (Premium Dark Mode) chi tiết các phát hiện.
+- 🤖 **Tích hợp Telegram Bot** - Tự động tạo Topic dự án riêng biệt, thông báo tiến độ, ghim kết quả quét và hỗ trợ kích hoạt quét trực tiếp bằng cách tải tệp zip/rar lên.
+- 📈 **Modern Dashboard** - Giao diện trực quan với analytics, reporting và tracking xu hướng.
+- 🐳 **Docker Ready** - Dễ dàng triển khai toàn bộ hệ thống với Docker Compose.
 
 ## 🏗️ Kiến trúc
 
@@ -54,16 +53,28 @@ npm run dev
 
 ### Docker Setup (Recommended)
 
+Trước khi khởi chạy bằng Docker Compose, hãy tạo file `.env` từ file `.env.example` và cấu hình các biến môi trường cho Telegram Bot:
+
+```env
+TELEGRAM_BOT_TOKEN=your_bot_token
+TELEGRAM_CHAT_ID=your_chat_or_group_id
+TELEGRAM_BOT_COMMAND_THREAD_ID=306  # ID của Topic nhận file zip/rar để quét
+```
+
+Sau đó khởi chạy toàn bộ dịch vụ:
+
 ```bash
+docker-compose build
 docker-compose up -d
 ```
 
 ## 📖 Sử dụng
 
 1. Truy cập dashboard: http://localhost:3000
-2. Upload hoặc link repository cần quét
-3. Chọn loại scan (SAST / Vulnerability / Secrets)
-4. Xem kết quả trong dashboard
+2. Tạo dự án mới hoặc liên kết Git repository cần quét.
+3. Kích hoạt quét: Nhấn **Start Scan** (Hệ thống sẽ tự động quét toàn diện với chế độ **Combined Scan**).
+4. Xem kết quả trực tiếp trên Dashboard hoặc nhận thông tin kèm tệp đính kèm **HTML Report** gửi tới Topic của dự án trên Telegram.
+5. Quét qua Telegram Bot: Gửi tệp zip/rar mã nguồn vào topic `Bot Command` và nhấn nút **Bắt đầu quét** được phản hồi bởi Bot.
 
 ## 🛠️ Tech Stack
 

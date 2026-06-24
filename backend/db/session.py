@@ -60,6 +60,11 @@ async def init_db():
             await conn.commit()
         except Exception:
             pass
+        try:
+            await conn.execute(text("ALTER TYPE scantype ADD VALUE 'COMBINED';"))
+            await conn.commit()
+        except Exception:
+            pass
 
 
 async def close_db():

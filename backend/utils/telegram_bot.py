@@ -87,17 +87,21 @@ async def handle_message(message: dict):
     """
     Filter messages that are sent inside the Bot Command topic containing document uploads.
     """
-    message_thread_id = message.get("message_thread_id")
-    print(f"DEBUG: handle_message message_thread_id: {message_thread_id} | Target thread ID: {settings.TELEGRAM_BOT_COMMAND_THREAD_ID}")
-    if message_thread_id != settings.TELEGRAM_BOT_COMMAND_THREAD_ID:
-        return
+    try:
+        message_thread_id = message.get("message_thread_id")
+        print(f"DEBUG: handle_message message_thread_id: {message_thread_id} | Target thread ID: {settings.TELEGRAM_BOT_COMMAND_THREAD_ID}")
+        if message_thread_id != settings.TELEGRAM_BOT_COMMAND_THREAD_ID:
+            return
 
-    # Check if the message contains a document
-    if "document" in message:
-        print(f"DEBUG: handle_message: found document: {message['document'].get('file_name')}")
-        await handle_document_upload(message)
-    else:
-        print(f"DEBUG: handle_message: no document in message: {list(message.keys())}")
+        # Check if the message contains a document
+        if "document" in message:
+            print(f"DEBUG: handle_message: found document: {message['document'].get('file_name')}")
+            await handle_document_upload(message)
+        else:
+            print(f"DEBUG: handle_message: no document in message: {list(message.keys())}")
+    except Exception as e:
+        logger.exception(f"Unhandled exception in handle_message: {e}")
+        print(f"DEBUG Exception in handle_message: {e}")
 
 
 async def download_telegram_file(file_id: str, dest_path: Path) -> bool:
@@ -391,7 +395,7 @@ async def process_rescan_project(project_id: str, scan_type: str, message_thread
 
         except Exception as e:
             logger.error(f"Error rescanning project {project_id} from Telegram command: {e}")
-            msg = f"❌ Gặp lỗi khi kích hoạt quét lại: {str(e)}"
+            msg = f"❌ Gặp lỗi khi kích hoạt quét lại: {escape_html(str(e))}"
             send_telegram_notification(msg, message_thread_id=message_thread_id)
 
 
@@ -484,7 +488,7 @@ async def process_telegram_scan_trigger(upload_uuid: str, current_thread_id: int
             
         except Exception as e:
             logger.error(f"Failed to trigger Telegram scan for {file_name}: {e}")
-            msg = f"❌ Gặp lỗi khi tạo phiên quét dự án: {str(e)}"
+            msg = f"❌ Gặp lỗi khi tạo phiên quét dự án: {escape_html(str(e))}"
             send_telegram_notification(msg, message_thread_id=current_thread_id)
             if temp_file_path.exists():
                 temp_file_path.unlink()

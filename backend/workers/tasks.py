@@ -31,6 +31,121 @@ def _update_progress(session: Session, scan: Scan, progress: int, message: str):
     logger.info(f"Scan {scan.id} progress: {progress}% - {message}")
 
 
+def _ensure_project_telegram_topic(session: Session, project: Project) -> int | None:
+    """Ensure that a project has a Telegram topic thread ID. If not, create one."""
+    if project.telegram_topic_id:
+        return project.telegram_topic_id
+
+    try:
+        from utils.telegram import create_telegram_topic
+        topic_id = create_telegram_topic(project.name)
+        if topic_id:
+            project.telegram_topic_id = topic_id
+            session.commit()
+            return topic_id
+    except Exception as e:
+        logger.error(f"Failed to ensure Telegram topic for project {project.name}: {e}")
+    return None
+
+
+def _send_scan_completed_notification(project, scan, session: Session):
+    """Send scan completed notification to Telegram, pin it, and unpin previous result."""
+    try:
+        from utils.telegram import send_telegram_notification, escape_html, pin_telegram_message, unpin_telegram_message
+        summary = scan.summary or {}
+        total_findings = summary.get("total_findings", 0)
+        
+        # Check both lower and upper case keys in case summary keys vary
+        critical = summary.get("critical", 0) or summary.get("CRITICAL", 0)
+        high = summary.get("high", 0) or summary.get("HIGH", 0)
+        medium = summary.get("medium", 0) or summary.get("MEDIUM", 0)
+        low = summary.get("low", 0) or summary.get("LOW", 0)
+        info = summary.get("info", 0) or summary.get("INFO", 0)
+
+        diff_info = ""
+        if scan.findings_diff:
+            added = scan.findings_diff.get("added", 0)
+            removed = scan.findings_diff.get("removed", 0)
+            unmodified = scan.findings_diff.get("unmodified", 0)
+            diff_info = f"\n• <b>Thay đổi:</b> +{added} | -{removed} | ={unmodified}"
+
+        msg = (
+            f"✅ <b>[SCA Platform] Quét hoàn thành thành công</b>\n\n"
+            f"• <b>Dự án:</b> <b>{escape_html(project.name)}</b>\n"
+            f"• <b>Loại quét:</b> <code>{scan.scan_type.value.upper()}</code>\n"
+            f"• <b>Thời gian quét:</b> <code>{scan.duration_seconds}s</code>\n"
+            f"• <b>Tổng số lỗi phát hiện:</b> <b>{total_findings}</b>{diff_info}\n"
+            f"  🔴 <i>Critical:</i> {critical}\n"
+            f"  🟠 <i>High:</i> {high}\n"
+            f"  🟡 <i>Medium:</i> {medium}\n"
+            f"  🔵 <i>Low:</i> {low}\n"
+            f"  ⚪ <i>Info:</i> {info}"
+        )
+
+        # Build inline keyboard buttons
+        inline_keyboard = [
+            [
+                {
+                    "text": "🔄 Quét lại (Rescan)",
+                    "callback_data": f"rescan:{project.id}:{scan.scan_type.value}"
+                },
+                {
+                    "text": "🗑️ Xóa dự án (Delete)",
+                    "callback_data": f"delete:{project.id}"
+                }
+            ]
+        ]
+
+        sent_msg_id = send_telegram_notification(
+            msg, 
+            message_thread_id=project.telegram_topic_id, 
+            inline_keyboard=inline_keyboard
+        )
+
+        if sent_msg_id:
+            scan.telegram_message_id = sent_msg_id
+            session.commit()
+            
+            # Pin the new result message
+            pin_telegram_message(sent_msg_id)
+            
+            # Find and unpin the previous result message
+            prev_scan = (
+                session.query(Scan)
+                .filter(
+                    Scan.project_id == scan.project_id,
+                    Scan.status == ScanStatus.COMPLETED,
+                    Scan.telegram_message_id.isnot(None),
+                    Scan.id != scan.id,
+                )
+                .order_by(Scan.completed_at.desc())
+                .first()
+            )
+            if prev_scan and prev_scan.telegram_message_id:
+                unpin_telegram_message(prev_scan.telegram_message_id)
+
+    except Exception as e:
+        logger.error(f"Failed to send scan completion notification: {e}")
+
+
+def _send_scan_failed_notification(project, scan, error_message: str):
+    """Send scan failed notification to Telegram."""
+    try:
+        from utils.telegram import send_telegram_notification, escape_html
+        name = project.name if project else "Unknown"
+        thread_id = project.telegram_topic_id if project else None
+        msg = (
+            f"❌ <b>[SCA Platform] Quét thất bại</b>\n\n"
+            f"• <b>Dự án:</b> <b>{escape_html(name)}</b>\n"
+            f"• <b>Loại quét:</b> <code>{scan.scan_type.value.upper()}</code>\n"
+            f"• <b>Lỗi:</b> <code>{escape_html(error_message)}</code>"
+        )
+        send_telegram_notification(msg, message_thread_id=thread_id)
+    except Exception as e:
+        logger.error(f"Failed to send scan failure notification: {e}")
+
+
+
 def handle_rescan_optimization(session: Session, scan: Scan, repo_path: str, scan_type: str) -> tuple[bool, list[dict] | None]:
     """
     Check if we can skip the scan by comparing hashes with the previous completed scan.
@@ -195,6 +310,24 @@ def run_scan(self, scan_id: str, scan_type: str):
         if not project:
             raise ValueError(f"Project {scan.project_id} not found")
 
+        # Ensure project has a Telegram topic
+        _ensure_project_telegram_topic(session, project)
+
+        # Send Telegram notification (Start)
+        try:
+            from utils.telegram import send_telegram_notification, escape_html
+            repo_info = f"• <b>Repository:</b> {escape_html(project.repo_url)}\n• <b>Nhánh:</b> <code>{escape_html(project.branch or 'main')}</code>"
+            msg = (
+                f"🔔 <b>[SCA Platform] Bắt đầu quét dự án</b>\n\n"
+                f"• <b>Dự án:</b> <b>{escape_html(project.name)}</b>\n"
+                f"{repo_info}\n"
+                f"• <b>Loại quét:</b> <code>{scan.scan_type.value.upper()}</code>\n"
+                f"• <b>ID quét:</b> <code>{scan.id}</code>"
+            )
+            send_telegram_notification(msg, message_thread_id=project.telegram_topic_id)
+        except Exception as te:
+            logger.error(f"Telegram start notification failed: {te}")
+
         _update_progress(session, scan, 20, "Cloning repository...")
 
         # Clone repository
@@ -271,6 +404,9 @@ def run_scan(self, scan_id: str, scan_type: str):
         }
         session.commit()
 
+        # Send Telegram notification (Success)
+        _send_scan_completed_notification(project, scan, session)
+
         logger.info(
             f"Scan {scan_id} completed: {findings_saved} findings "
             f"({severity_counts})"
@@ -300,6 +436,10 @@ def run_scan(self, scan_id: str, scan_type: str):
                         (scan.completed_at - scan.started_at).total_seconds()
                     )
                 session.commit()
+                
+                # Send Telegram notification (Failure)
+                project_in_scope = project if 'project' in locals() and project else None
+                _send_scan_failed_notification(project_in_scope, scan, str(e))
         except Exception:
             session.rollback()
 
@@ -338,6 +478,29 @@ def run_local_scan(self, scan_id: str, scan_type: str, source_path: str):
         scan.progress = 10
         scan.progress_message = "Initializing local scan..."
         session.commit()
+
+        # Get project info
+        project = session.query(Project).filter(Project.id == scan.project_id).first()
+        if not project:
+            raise ValueError(f"Project {scan.project_id} not found")
+
+        # Ensure project has a Telegram topic
+        _ensure_project_telegram_topic(session, project)
+
+        # Send Telegram notification (Start)
+        try:
+            from utils.telegram import send_telegram_notification, escape_html
+            repo_info = "• <b>Nguồn:</b> Tải lên file ZIP"
+            msg = (
+                f"🔔 <b>[SCA Platform] Bắt đầu quét dự án</b>\n\n"
+                f"• <b>Dự án:</b> <b>{escape_html(project.name)}</b>\n"
+                f"{repo_info}\n"
+                f"• <b>Loại quét:</b> <code>{scan.scan_type.value.upper()}</code>\n"
+                f"• <b>ID quét:</b> <code>{scan.id}</code>"
+            )
+            send_telegram_notification(msg, message_thread_id=project.telegram_topic_id)
+        except Exception as te:
+            logger.error(f"Telegram start notification failed: {te}")
 
         # Check for rescan optimization
         should_skip, prev_finding_dicts = handle_rescan_optimization(session, scan, source_path, scan_type)
@@ -402,6 +565,9 @@ def run_local_scan(self, scan_id: str, scan_type: str, source_path: str):
         }
         session.commit()
 
+        # Send Telegram notification (Success)
+        _send_scan_completed_notification(project, scan, session)
+
         logger.info(
             f"Local scan {scan_id} completed: {findings_saved} findings "
             f"({severity_counts})"
@@ -429,6 +595,10 @@ def run_local_scan(self, scan_id: str, scan_type: str, source_path: str):
                         (scan.completed_at - scan.started_at).total_seconds()
                     )
                 session.commit()
+                
+                # Send Telegram notification (Failure)
+                project_in_scope = project if 'project' in locals() and project else None
+                _send_scan_failed_notification(project_in_scope, scan, str(e))
         except Exception:
             session.rollback()
         return {"status": "failed", "error": str(e)}
@@ -472,6 +642,30 @@ def run_local_folder_scan(self, scan_id: str, scan_type: str, source_path: str):
         scan.progress = 10
         scan.progress_message = "Initializing folder scan..."
         session.commit()
+
+        # Get project info
+        project = session.query(Project).filter(Project.id == scan.project_id).first()
+        if not project:
+            raise ValueError(f"Project {scan.project_id} not found")
+
+        # Ensure project has a Telegram topic
+        _ensure_project_telegram_topic(session, project)
+
+        # Send Telegram notification (Start)
+        try:
+            from utils.telegram import send_telegram_notification, escape_html
+            folder_path = project.repo_url.replace("folder://", "")
+            repo_info = f"• <b>Thư mục:</b> <code>{escape_html(folder_path)}</code>"
+            msg = (
+                f"🔔 <b>[SCA Platform] Bắt đầu quét dự án</b>\n\n"
+                f"• <b>Dự án:</b> <b>{escape_html(project.name)}</b>\n"
+                f"{repo_info}\n"
+                f"• <b>Loại quét:</b> <code>{scan.scan_type.value.upper()}</code>\n"
+                f"• <b>ID quét:</b> <code>{scan.id}</code>"
+            )
+            send_telegram_notification(msg, message_thread_id=project.telegram_topic_id)
+        except Exception as te:
+            logger.error(f"Telegram start notification failed: {te}")
 
         # Check for rescan optimization
         should_skip, prev_finding_dicts = handle_rescan_optimization(session, scan, source_path, scan_type)
@@ -536,6 +730,9 @@ def run_local_folder_scan(self, scan_id: str, scan_type: str, source_path: str):
         }
         session.commit()
 
+        # Send Telegram notification (Success)
+        _send_scan_completed_notification(project, scan, session)
+
         logger.info(
             f"Folder scan {scan_id} completed: {findings_saved} findings "
             f"({severity_counts})"
@@ -563,6 +760,10 @@ def run_local_folder_scan(self, scan_id: str, scan_type: str, source_path: str):
                         (scan.completed_at - scan.started_at).total_seconds()
                     )
                 session.commit()
+                
+                # Send Telegram notification (Failure)
+                project_in_scope = project if 'project' in locals() and project else None
+                _send_scan_failed_notification(project_in_scope, scan, str(e))
         except Exception:
             session.rollback()
         return {"status": "failed", "error": str(e)}

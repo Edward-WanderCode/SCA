@@ -47,6 +47,7 @@ class Scan(Base):
         Enum(ScanStatus), default=ScanStatus.PENDING, nullable=False, index=True
     )
     celery_task_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    telegram_message_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

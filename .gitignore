@@ -1,0 +1,32 @@
+# Environments
+.env
+.env.local
+.env.*.local
+
+# Python caches & virtual environments
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+env/
+.pytest_cache/
+
+# Node/Frontend build and dependencies
+node_modules/
+dist/
+build/
+.eslintcache
+.vite
+
+# Docker & Workspace temporary files
+temp_*.zip
+temp_*
+/backend/workspace/projects/
+/backend/workspace/temp_*
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db

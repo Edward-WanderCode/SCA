@@ -37,6 +37,10 @@ class Settings(BaseSettings):
     HOST_CODE_DIR: str = "/app/host_code"
     MAX_CONCURRENT_SCANS: int = 3
 
+    # Telegram
+    TELEGRAM_BOT_TOKEN: Optional[str] = None
+    TELEGRAM_CHAT_ID: Optional[str] = None
+
     # CORS
     CORS_ORIGINS: list[str] = [
         "http://localhost:3000",

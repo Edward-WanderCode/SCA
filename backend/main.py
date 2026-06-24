@@ -12,8 +12,20 @@ async def lifespan(app: FastAPI):
     """Application lifespan: startup and shutdown events."""
     # Startup
     await init_db()
+    
+    # Start Telegram Bot Polling in background
+    import asyncio
+    from utils.telegram_bot import start_telegram_bot_polling
+    polling_task = asyncio.create_task(start_telegram_bot_polling())
+    
     yield
     # Shutdown
+    polling_task.cancel()
+    try:
+        await polling_task
+    except asyncio.CancelledError:
+        pass
+        
     await close_db()
 
 

@@ -49,6 +49,8 @@ async def init_db():
         try:
             await conn.execute(text("ALTER TABLE scans ADD COLUMN IF NOT EXISTS file_hashes JSONB;"))
             await conn.execute(text("ALTER TABLE scans ADD COLUMN IF NOT EXISTS findings_diff JSONB;"))
+            await conn.execute(text("ALTER TABLE projects ADD COLUMN IF NOT EXISTS telegram_topic_id INTEGER;"))
+            await conn.execute(text("ALTER TABLE scans ADD COLUMN IF NOT EXISTS telegram_message_id INTEGER;"))
         except Exception:
             pass
 

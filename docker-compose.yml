@@ -38,6 +38,8 @@ services:
       DEBUG: "true"
       HOST_CODE_DIR_ON_HOST: d:/Code
       WORKSPACE_VOLUME_NAME: sca_scan_workspace
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
 
     ports:
       - "8000:8000"
@@ -64,6 +66,8 @@ services:
       SCAN_WORKSPACE_DIR: /app/workspace
       HOST_CODE_DIR_ON_HOST: d:/Code
       WORKSPACE_VOLUME_NAME: sca_scan_workspace
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
 
     depends_on:
       postgres:

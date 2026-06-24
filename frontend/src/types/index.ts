@@ -1,7 +1,7 @@
 /* TypeScript types for the SCA Platform */
 
 export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'info';
-export type ScanType = 'sast' | 'vulnerability' | 'secret';
+export type ScanType = 'sast' | 'vulnerability' | 'secret' | 'combined';
 export type ScanStatus = 'pending' | 'running' | 'completed' | 'failed';
 
 export interface Project {

@@ -14,6 +14,7 @@ export const scanTypeConfig: Record<ScanType, { label: string; icon: string; col
   sast: { label: 'SAST', icon: '🔍', color: '#6366f1' },
   vulnerability: { label: 'Vulnerability', icon: '🛡️', color: '#f97316' },
   secret: { label: 'Secret', icon: '🔑', color: '#8b5cf6' },
+  combined: { label: 'Full Scan', icon: '⚡', color: '#10b981' },
 };
 
 export const statusConfig: Record<ScanStatus, { label: string; className: string }> = {

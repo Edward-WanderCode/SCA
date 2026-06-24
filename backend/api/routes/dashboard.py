@@ -79,6 +79,7 @@ async def get_dashboard_stats(
             "sast": type_counts.get("sast", 0),
             "vulnerability": type_counts.get("vulnerability", 0),
             "secret": type_counts.get("secret", 0),
+            "combined": type_counts.get("combined", 0),
         },
     }
 

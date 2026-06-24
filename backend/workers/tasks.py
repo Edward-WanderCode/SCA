@@ -51,7 +51,7 @@ def _ensure_project_telegram_topic(session: Session, project: Project) -> int | 
 def _send_scan_completed_notification(project, scan, session: Session):
     """Send scan completed notification to Telegram, pin it, and unpin previous result."""
     try:
-        from utils.telegram import send_telegram_notification, escape_html, pin_telegram_message, unpin_telegram_message
+        from utils.telegram import send_telegram_notification, send_telegram_document, escape_html, pin_telegram_message, unpin_telegram_message
         summary = scan.summary or {}
         total_findings = summary.get("total_findings", 0)
         
@@ -123,6 +123,31 @@ def _send_scan_completed_notification(project, scan, session: Session):
             )
             if prev_scan and prev_scan.telegram_message_id:
                 unpin_telegram_message(prev_scan.telegram_message_id)
+
+        # Generate and send HTML report
+        try:
+            from utils.report_generator import generate_html_report
+            import tempfile
+            import os
+            
+            findings = session.query(Finding).filter(Finding.scan_id == scan.id).all()
+            html_content = generate_html_report(project, scan, findings)
+            
+            safe_name = "".join([c if c.isalnum() or c in ("-", "_") else "_" for c in project.name])
+            report_filename = f"{safe_name}_Report_{scan.id[:8]}.html"
+            
+            temp_path = os.path.join(tempfile.gettempdir(), report_filename)
+            with open(temp_path, "w", encoding="utf-8") as f:
+                f.write(html_content)
+                
+            caption = f"📊 <b>Báo cáo quét chi tiết:</b> <code>{escape_html(project.name)}</code>"
+            send_telegram_document(temp_path, caption, message_thread_id=project.telegram_topic_id)
+            
+            # Clean up temp file
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+        except Exception as re:
+            logger.error(f"Failed to generate or send HTML report: {re}")
 
     except Exception as e:
         logger.error(f"Failed to send scan completion notification: {e}")
@@ -345,9 +370,32 @@ def run_scan(self, scan_id: str, scan_type: str):
             _update_progress(session, scan, 60, "Restoring findings from identical previous scan...")
             finding_dicts = prev_finding_dicts
         else:
-            _update_progress(session, scan, 40, f"Running {scan_type} analysis...")
-            logger.info(f"Executing {scan_type} scan for project {project.name}")
-            finding_dicts = ScanService.execute_scan(scan_type, repo_path)
+            if scan_type == "combined":
+                finding_dicts = []
+                # Step 1: Secret Scan
+                _update_progress(session, scan, 30, "Running secret detection...")
+                try:
+                    finding_dicts.extend(ScanService.run_secret_scan(repo_path))
+                except Exception as e:
+                    logger.error(f"Secret scan failed: {e}")
+
+                # Step 2: Vulnerability Scan
+                _update_progress(session, scan, 50, "Running dependency vulnerability scan...")
+                try:
+                    finding_dicts.extend(ScanService.run_vulnerability_scan(repo_path))
+                except Exception as e:
+                    logger.error(f"Vulnerability scan failed: {e}")
+
+                # Step 3: SAST Scan
+                _update_progress(session, scan, 70, "Running SAST analysis...")
+                try:
+                    finding_dicts.extend(ScanService.run_sast_scan(repo_path))
+                except Exception as e:
+                    logger.error(f"SAST scan failed: {e}")
+            else:
+                _update_progress(session, scan, 40, f"Running {scan_type} analysis...")
+                logger.info(f"Executing {scan_type} scan for project {project.name}")
+                finding_dicts = ScanService.execute_scan(scan_type, repo_path)
 
         _update_progress(session, scan, 70, "Processing findings...")
 
@@ -509,9 +557,32 @@ def run_local_scan(self, scan_id: str, scan_type: str, source_path: str):
             _update_progress(session, scan, 60, "Restoring findings from identical previous scan...")
             finding_dicts = prev_finding_dicts
         else:
-            _update_progress(session, scan, 30, f"Running {scan_type} analysis on local code...")
-            logger.info(f"Executing {scan_type} local scan on {source_path}")
-            finding_dicts = ScanService.execute_scan(scan_type, source_path)
+            if scan_type == "combined":
+                finding_dicts = []
+                # Step 1: Secret Scan
+                _update_progress(session, scan, 30, "Running secret detection...")
+                try:
+                    finding_dicts.extend(ScanService.run_secret_scan(source_path))
+                except Exception as e:
+                    logger.error(f"Secret scan failed: {e}")
+
+                # Step 2: Vulnerability Scan
+                _update_progress(session, scan, 50, "Running dependency vulnerability scan...")
+                try:
+                    finding_dicts.extend(ScanService.run_vulnerability_scan(source_path))
+                except Exception as e:
+                    logger.error(f"Vulnerability scan failed: {e}")
+
+                # Step 3: SAST Scan
+                _update_progress(session, scan, 70, "Running SAST analysis...")
+                try:
+                    finding_dicts.extend(ScanService.run_sast_scan(source_path))
+                except Exception as e:
+                    logger.error(f"SAST scan failed: {e}")
+            else:
+                _update_progress(session, scan, 30, f"Running {scan_type} analysis on local code...")
+                logger.info(f"Executing {scan_type} local scan on {source_path}")
+                finding_dicts = ScanService.execute_scan(scan_type, source_path)
 
         _update_progress(session, scan, 70, "Processing findings...")
 
@@ -674,9 +745,32 @@ def run_local_folder_scan(self, scan_id: str, scan_type: str, source_path: str):
             _update_progress(session, scan, 60, "Restoring findings from identical previous scan...")
             finding_dicts = prev_finding_dicts
         else:
-            _update_progress(session, scan, 30, f"Running {scan_type} analysis on folder...")
-            logger.info(f"Executing {scan_type} folder scan on {source_path}")
-            finding_dicts = ScanService.execute_scan(scan_type, source_path)
+            if scan_type == "combined":
+                finding_dicts = []
+                # Step 1: Secret Scan
+                _update_progress(session, scan, 30, "Running secret detection...")
+                try:
+                    finding_dicts.extend(ScanService.run_secret_scan(source_path))
+                except Exception as e:
+                    logger.error(f"Secret scan failed: {e}")
+
+                # Step 2: Vulnerability Scan
+                _update_progress(session, scan, 50, "Running dependency vulnerability scan...")
+                try:
+                    finding_dicts.extend(ScanService.run_vulnerability_scan(source_path))
+                except Exception as e:
+                    logger.error(f"Vulnerability scan failed: {e}")
+
+                # Step 3: SAST Scan
+                _update_progress(session, scan, 70, "Running SAST analysis...")
+                try:
+                    finding_dicts.extend(ScanService.run_sast_scan(source_path))
+                except Exception as e:
+                    logger.error(f"SAST scan failed: {e}")
+            else:
+                _update_progress(session, scan, 30, f"Running {scan_type} analysis on folder...")
+                logger.info(f"Executing {scan_type} folder scan on {source_path}")
+                finding_dicts = ScanService.execute_scan(scan_type, source_path)
 
         _update_progress(session, scan, 70, "Processing findings...")
 

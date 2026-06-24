@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     # Telegram
     TELEGRAM_BOT_TOKEN: Optional[str] = None
     TELEGRAM_CHAT_ID: Optional[str] = None
+    TELEGRAM_BOT_COMMAND_THREAD_ID: int = 306
 
     # CORS
     CORS_ORIGINS: list[str] = [

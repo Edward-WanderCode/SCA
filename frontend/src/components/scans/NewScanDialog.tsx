@@ -2,7 +2,7 @@
 
 import { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Search, Shield, Key, Play, Loader2, Upload, FolderArchive, Folder, FolderOpen } from 'lucide-react';
+import { X, Search, Play, Loader2, Upload, FolderArchive, Folder, FolderOpen } from 'lucide-react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { projectsApi, scansApi } from '@/lib/api';
 import type { ScanType } from '@/types';
@@ -12,36 +12,13 @@ interface NewScanDialogProps {
   onSuccess: () => void;
 }
 
-const scanOptions: { type: ScanType; icon: React.ReactNode; label: string; description: string; color: string }[] = [
-  {
-    type: 'sast',
-    icon: <Search size={22} />,
-    label: 'SAST Scan',
-    description: 'Static code analysis with Semgrep. Detect code vulnerabilities, injection flaws, and security anti-patterns.',
-    color: '#6366f1',
-  },
-  {
-    type: 'vulnerability',
-    icon: <Shield size={22} />,
-    label: 'Vulnerability Scan',
-    description: 'Scan dependencies for known CVEs with Trivy. Check packages, containers, and infrastructure-as-code.',
-    color: '#f97316',
-  },
-  {
-    type: 'secret',
-    icon: <Key size={22} />,
-    label: 'Secret Detection',
-    description: 'Find leaked API keys, tokens, and credentials with TruffleHog. Verify active secrets automatically.',
-    color: '#8b5cf6',
-  },
-];
 
 type ScanMode = 'project' | 'local' | 'folder';
 
 export default function NewScanDialog({ onClose, onSuccess }: NewScanDialogProps) {
   const [mode, setMode] = useState<ScanMode>('project');
   const [selectedProject, setSelectedProject] = useState('');
-  const [selectedTypes, setSelectedTypes] = useState<Set<ScanType>>(new Set());
+  const [selectedTypes, setSelectedTypes] = useState<Set<ScanType>>(new Set(['combined']));
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [folderPath, setFolderPath] = useState('');
   const [showBrowser, setShowBrowser] = useState(false);
@@ -93,17 +70,7 @@ export default function NewScanDialog({ onClose, onSuccess }: NewScanDialogProps
 
   const isPending = projectMutation.isPending || localMutation.isPending || folderMutation.isPending;
 
-  const toggleType = (type: ScanType) => {
-    setSelectedTypes((prev) => {
-      const next = new Set(prev);
-      if (next.has(type)) {
-        next.delete(type);
-      } else {
-        next.add(type);
-      }
-      return next;
-    });
-  };
+
 
   const handleSubmit = () => {
     if (selectedTypes.size === 0) return;
@@ -404,91 +371,54 @@ export default function NewScanDialog({ onClose, onSuccess }: NewScanDialogProps
               </div>
             )}
 
-            {/* Scan Type Selection */}
-            <div>
-              <label
+            {/* Combined Scan Info Card */}
+            <div
+              style={{
+                padding: '20px 24px',
+                borderRadius: 14,
+                border: '1px solid rgba(16, 185, 129, 0.2)',
+                background: 'rgba(16, 185, 129, 0.05)',
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 16,
+              }}
+            >
+              <div
                 style={{
-                  fontSize: '0.8125rem',
-                  fontWeight: 600,
-                  color: 'var(--text-secondary)',
-                  display: 'block',
-                  marginBottom: 12,
+                  width: 44,
+                  height: 44,
+                  borderRadius: 10,
+                  background: 'linear-gradient(135deg, #10b981, #059669)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'white',
+                  flexShrink: 0,
+                  boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)',
                 }}
               >
-                Scan Types
-              </label>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {scanOptions.map((opt) => {
-                  const isSelected = selectedTypes.has(opt.type);
-                  return (
-                    <motion.div
-                      key={opt.type}
-                      onClick={() => toggleType(opt.type)}
-                      whileHover={{ scale: 1.01 }}
-                      whileTap={{ scale: 0.99 }}
-                      style={{
-                        padding: '16px 18px',
-                        borderRadius: 12,
-                        border: `1px solid ${isSelected ? opt.color + '60' : 'var(--border-primary)'}`,
-                        background: isSelected ? opt.color + '12' : 'transparent',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'flex-start',
-                        gap: 14,
-                        transition: 'all 200ms ease',
-                      }}
-                    >
-                      <div
-                        style={{
-                          width: 44,
-                          height: 44,
-                          borderRadius: 10,
-                          background: isSelected
-                            ? `linear-gradient(135deg, ${opt.color}, ${opt.color}cc)`
-                            : `${opt.color}20`,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          color: isSelected ? 'white' : opt.color,
-                          flexShrink: 0,
-                          transition: 'all 200ms ease',
-                        }}
-                      >
-                        {opt.icon}
-                      </div>
-                      <div>
-                        <p style={{ fontWeight: 600, fontSize: '0.875rem', marginBottom: 2 }}>
-                          {opt.label}
-                        </p>
-                        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                          {opt.description}
-                        </p>
-                      </div>
-                      {/* Checkbox */}
-                      <div
-                        style={{
-                          width: 22,
-                          height: 22,
-                          borderRadius: 6,
-                          border: `2px solid ${isSelected ? opt.color : 'var(--border-primary)'}`,
-                          background: isSelected ? opt.color : 'transparent',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          flexShrink: 0,
-                          marginTop: 2,
-                          transition: 'all 200ms ease',
-                        }}
-                      >
-                        {isSelected && (
-                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                            <path d="M2.5 6L5 8.5L9.5 3.5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                        )}
-                      </div>
-                    </motion.div>
-                  );
-                })}
+                <Play size={20} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <h4 style={{ fontWeight: 600, fontSize: '0.875rem', color: '#10b981', marginBottom: 4 }}>
+                  Full Security Scan Enabled
+                </h4>
+                <p style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                  This scan will automatically run and combine all security engines:
+                </p>
+                <ul style={{ 
+                  fontSize: '0.8125rem', 
+                  color: 'var(--text-muted)', 
+                  marginTop: 6, 
+                  paddingLeft: 16, 
+                  display: 'flex', 
+                  flexDirection: 'column', 
+                  gap: 4 
+                }}>
+                  <li style={{ listStyleType: 'disc' }}>🔍 <strong>SAST:</strong> Code structure, syntax, and vulnerability scanning.</li>
+                  <li style={{ listStyleType: 'disc' }}>🛡️ <strong>Vulnerabilities:</strong> Known library vulnerabilities in dependencies.</li>
+                  <li style={{ listStyleType: 'disc' }}>🔑 <strong>Secrets:</strong> Embedded passwords, private keys, and API tokens.</li>
+                </ul>
               </div>
             </div>
 

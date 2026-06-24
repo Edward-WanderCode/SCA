@@ -4,13 +4,14 @@ FROM python:3.11-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     curl \
+    unar \
     && curl -fsSL https://get.docker.com | sh \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # Install OpenGrep natively inside the worker
-RUN curl -fsSL https://raw.githubusercontent.com/opengrep/opengrep/main/install.sh | bash \
-    && ln -s /root/.opengrep/cli/latest/opengrep /usr/local/bin/opengrep
+RUN curl -fsSL -o /usr/local/bin/opengrep https://github.com/opengrep/opengrep/releases/download/v1.23.0/opengrep_manylinux_x86 \
+    && chmod +x /usr/local/bin/opengrep
 
 WORKDIR /app
 

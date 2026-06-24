@@ -14,6 +14,7 @@ class ScanType(str, enum.Enum):
     SAST = "sast"
     VULNERABILITY = "vulnerability"
     SECRET = "secret"
+    COMBINED = "combined"
 
 
 class ScanStatus(str, enum.Enum):

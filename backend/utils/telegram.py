@@ -176,3 +176,49 @@ def delete_telegram_topic(message_thread_id: int) -> bool:
     except Exception as e:
         logger.error(f"Failed to delete Telegram forum topic {message_thread_id}: {e}")
         return False
+
+
+def send_telegram_document(
+    file_path: str,
+    caption: str,
+    message_thread_id: int | None = None
+) -> int | None:
+    """
+    Send a document file to the configured Telegram chat.
+    """
+    token = settings.TELEGRAM_BOT_TOKEN
+    chat_id = settings.TELEGRAM_CHAT_ID
+
+    if not token or not chat_id:
+        logger.warning("Telegram document send skipped: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not configured.")
+        return None
+
+    url = f"https://api.telegram.org/bot{token}/sendDocument"
+    data = {
+        "chat_id": chat_id,
+        "caption": caption,
+        "parse_mode": "HTML"
+    }
+    if message_thread_id is not None:
+        data["message_thread_id"] = message_thread_id
+
+    try:
+        from pathlib import Path
+        p = Path(file_path)
+        if not p.exists():
+            logger.error(f"Telegram document send failed: File {file_path} does not exist.")
+            return None
+
+        with open(p, "rb") as f:
+            files = {"document": (p.name, f, "text/html")}
+            with httpx.Client(timeout=30.0) as client:
+                res = client.post(url, data=data, files=files)
+                res.raise_for_status()
+                result = res.json()
+                if result.get("ok"):
+                    message_id = result["result"]["message_id"]
+                    logger.info(f"Telegram document sent successfully. Message ID: {message_id}")
+                    return message_id
+    except Exception as e:
+        logger.error(f"Failed to send Telegram document: {e}")
+    return None

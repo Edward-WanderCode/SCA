@@ -118,56 +118,48 @@ async def create_scan(
             detail="Cannot run standard git scans on local upload or local folder projects. Please use the appropriate tab to start a new scan."
         )
 
-    created_scans_data = []
-
-    for scan_type in data.scan_types:
-        scan = Scan(
-            project_id=data.project_id,
-            scan_type=scan_type,
-            status=ScanStatus.PENDING,
-        )
-        db.add(scan)
-        await db.flush()
-        await db.refresh(scan)
-        created_scans_data.append((scan, scan_type))
+    # We ignore the individual scan_types requested and always run a combined scan
+    scan = Scan(
+        project_id=data.project_id,
+        scan_type=ScanType.COMBINED,
+        status=ScanStatus.PENDING,
+    )
+    db.add(scan)
+    await db.flush()
+    await db.refresh(scan)
 
     # Commit first so the worker can query the Scan records
     await db.commit()
 
-    created_scans = []
-    for scan, scan_type in created_scans_data:
-        try:
-            from workers.tasks import run_scan
-            task = run_scan.delay(scan.id, scan_type.value)
-            scan.celery_task_id = task.id
-            db.add(scan)
-        except Exception:
-            pass
+    try:
+        from workers.tasks import run_scan
+        task = run_scan.delay(scan.id, ScanType.COMBINED.value)
+        scan.celery_task_id = task.id
+        db.add(scan)
+    except Exception:
+        pass
 
     # Commit updates to celery_task_ids
     await db.commit()
 
-    for scan, scan_type in created_scans_data:
-        created_scans.append(
-            ScanResponse(
-                id=scan.id,
-                project_id=scan.project_id,
-                project_name=project.name,
-                scan_type=scan.scan_type,
-                status=scan.status,
-                progress=0,
-                progress_message=None,
-                celery_task_id=scan.celery_task_id,
-                started_at=scan.started_at,
-                completed_at=scan.completed_at,
-                duration_seconds=scan.duration_seconds,
-                error_message=scan.error_message,
-                summary=None,
-                created_at=scan.created_at,
-            )
+    return [
+        ScanResponse(
+            id=scan.id,
+            project_id=scan.project_id,
+            project_name=project.name,
+            scan_type=scan.scan_type,
+            status=scan.status,
+            progress=0,
+            progress_message=None,
+            celery_task_id=scan.celery_task_id,
+            started_at=scan.started_at,
+            completed_at=scan.completed_at,
+            duration_seconds=scan.duration_seconds,
+            error_message=scan.error_message,
+            summary=None,
+            created_at=scan.created_at,
         )
-
-    return created_scans
+    ]
 
 
 @router.post("/local", response_model=list[ScanResponse], status_code=201)
@@ -225,16 +217,14 @@ async def create_local_scan(
         project_name = project.name
 
     scans_data = []
-    for scan_type in types:
-        scan = Scan(
-            project_id=project.id,
-            scan_type=scan_type,
-            status=ScanStatus.PENDING,
-        )
-        db.add(scan)
-        await db.flush()
-        await db.refresh(scan)
-        scans_data.append((scan, scan_type))
+    scan = Scan(
+        project_id=project.id,
+        scan_type=ScanType.COMBINED,
+        status=ScanStatus.PENDING,
+    )
+    db.add(scan)
+    await db.flush()
+    await db.refresh(scan)
 
     # Commit now so worker can see the Scan and Project records
     await db.commit()
@@ -257,16 +247,15 @@ async def create_local_scan(
             temp_zip_path.unlink()
         raise HTTPException(status_code=500, detail=f"Failed to extract ZIP: {e}")
 
-    for scan, scan_type in scans_data:
-        try:
-            from workers.tasks import run_local_scan
-            task = run_local_scan.delay(
-                scan.id, scan_type.value, str(project_src_dir)
-            )
-            scan.celery_task_id = task.id
-            db.add(scan)
-        except Exception:
-            pass
+    try:
+        from workers.tasks import run_local_scan
+        task = run_local_scan.delay(
+            scan.id, ScanType.COMBINED.value, str(project_src_dir)
+        )
+        scan.celery_task_id = task.id
+        db.add(scan)
+    except Exception:
+        pass
 
     # Commit updates to celery_task_ids
     await db.commit()
@@ -275,28 +264,24 @@ async def create_local_scan(
     if temp_zip_path.exists():
         temp_zip_path.unlink()
 
-    created_scans = []
-    for scan, scan_type in scans_data:
-        created_scans.append(
-            ScanResponse(
-                id=scan.id,
-                project_id=scan.project_id,
-                project_name=project_name,
-                scan_type=scan.scan_type,
-                status=scan.status,
-                progress=0,
-                progress_message=None,
-                celery_task_id=scan.celery_task_id,
-                started_at=scan.started_at,
-                completed_at=scan.completed_at,
-                duration_seconds=scan.duration_seconds,
-                error_message=scan.error_message,
-                summary=None,
-                created_at=scan.created_at,
-            )
+    return [
+        ScanResponse(
+            id=scan.id,
+            project_id=scan.project_id,
+            project_name=project_name,
+            scan_type=scan.scan_type,
+            status=scan.status,
+            progress=0,
+            progress_message=None,
+            celery_task_id=scan.celery_task_id,
+            started_at=scan.started_at,
+            completed_at=scan.completed_at,
+            duration_seconds=scan.duration_seconds,
+            error_message=scan.error_message,
+            summary=None,
+            created_at=scan.created_at,
         )
-
-    return created_scans
+    ]
 
 
 @router.post("/folder", response_model=list[ScanResponse], status_code=201)
@@ -335,58 +320,50 @@ async def create_folder_scan(
     else:
         project_name = project.name
 
-    scans_data = []
-    for scan_type in data.scan_types:
-        scan = Scan(
-            project_id=project.id,
-            scan_type=scan_type,
-            status=ScanStatus.PENDING,
-        )
-        db.add(scan)
-        await db.flush()
-        await db.refresh(scan)
-        scans_data.append((scan, scan_type))
+    scan = Scan(
+        project_id=project.id,
+        scan_type=ScanType.COMBINED,
+        status=ScanStatus.PENDING,
+    )
+    db.add(scan)
+    await db.flush()
+    await db.refresh(scan)
 
     # Commit records to the DB first so the worker can query them
     await db.commit()
 
     # Dispatch Celery tasks
-    for scan, scan_type in scans_data:
-        try:
-            from workers.tasks import run_local_folder_scan
-            task = run_local_folder_scan.delay(
-                scan.id, scan_type.value, path_str
-            )
-            scan.celery_task_id = task.id
-            db.add(scan)
-        except Exception:
-            pass
+    try:
+        from workers.tasks import run_local_folder_scan
+        task = run_local_folder_scan.delay(
+            scan.id, ScanType.COMBINED.value, path_str
+        )
+        scan.celery_task_id = task.id
+        db.add(scan)
+    except Exception:
+        pass
 
     # Commit updates to celery_task_ids
     await db.commit()
 
-    created_scans = []
-    for scan, scan_type in scans_data:
-        created_scans.append(
-            ScanResponse(
-                id=scan.id,
-                project_id=scan.project_id,
-                project_name=project_name,
-                scan_type=scan.scan_type,
-                status=scan.status,
-                progress=0,
-                progress_message=None,
-                celery_task_id=scan.celery_task_id,
-                started_at=scan.started_at,
-                completed_at=scan.completed_at,
-                duration_seconds=scan.duration_seconds,
-                error_message=scan.error_message,
-                summary=None,
-                created_at=scan.created_at,
-            )
+    return [
+        ScanResponse(
+            id=scan.id,
+            project_id=scan.project_id,
+            project_name=project_name,
+            scan_type=scan.scan_type,
+            status=scan.status,
+            progress=0,
+            progress_message=None,
+            celery_task_id=scan.celery_task_id,
+            started_at=scan.started_at,
+            completed_at=scan.completed_at,
+            duration_seconds=scan.duration_seconds,
+            error_message=scan.error_message,
+            summary=None,
+            created_at=scan.created_at,
         )
-
-    return created_scans
+    ]
 
 
 @router.get("/browse")

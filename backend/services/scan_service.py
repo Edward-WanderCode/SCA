@@ -255,12 +255,35 @@ class ScanService:
         Execute a scan based on type.
 
         Args:
-            scan_type: Type of scan (sast, vulnerability, secret)
+            scan_type: Type of scan (sast, vulnerability, secret, combined)
             repo_path: Path to repository
 
         Returns:
             List of finding dicts
         """
+        if scan_type == "combined":
+            findings = []
+            
+            # 1. Run SAST Scan
+            try:
+                findings.extend(cls.run_sast_scan(repo_path))
+            except Exception as e:
+                logger.error(f"SAST scan failed inside combined scan: {e}")
+                
+            # 2. Run Vulnerability Scan
+            try:
+                findings.extend(cls.run_vulnerability_scan(repo_path))
+            except Exception as e:
+                logger.error(f"Vulnerability scan failed inside combined scan: {e}")
+                
+            # 3. Run Secret Scan
+            try:
+                findings.extend(cls.run_secret_scan(repo_path))
+            except Exception as e:
+                logger.error(f"Secret scan failed inside combined scan: {e}")
+                
+            return findings
+
         scanners = {
             "sast": cls.run_sast_scan,
             "vulnerability": cls.run_vulnerability_scan,

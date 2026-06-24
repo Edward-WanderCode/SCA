@@ -54,6 +54,13 @@ async def init_db():
         except Exception:
             pass
 
+    async with engine.connect() as conn:
+        try:
+            await conn.execute(text("ALTER TYPE scantype ADD VALUE 'combined';"))
+            await conn.commit()
+        except Exception:
+            pass
+
 
 async def close_db():
     """Close database connections."""

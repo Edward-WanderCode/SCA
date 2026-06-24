@@ -280,13 +280,8 @@ async def rescan_project(
     from models.scan import ScanStatus, ScanType
     from schemas.scan import ScanResponse
     
-    # Get the latest scan types run for this project
-    scan_types_q = select(Scan.scan_type).where(Scan.project_id == project_id).distinct()
-    scan_types_result = await db.execute(scan_types_q)
-    scan_types = scan_types_result.scalars().all()
-    
-    if not scan_types:
-        scan_types = [ScanType.SAST]
+    # Rescans are always combined scans
+    scan_types = [ScanType.COMBINED]
         
     created_scans_data = []
     

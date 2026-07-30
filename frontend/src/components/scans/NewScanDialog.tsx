@@ -1,6 +1,6 @@
 /* New scan dialog / modal */
 
-import { useState, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Search, Play, Loader2, Upload, FolderArchive, Folder, FolderOpen } from 'lucide-react';
 import { useMutation, useQuery } from '@tanstack/react-query';
@@ -20,31 +20,16 @@ export default function NewScanDialog({ onClose, onSuccess }: NewScanDialogProps
   const [selectedProject, setSelectedProject] = useState('');
   const [selectedTypes, setSelectedTypes] = useState<Set<ScanType>>(new Set(['combined']));
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [folderPath, setFolderPath] = useState('');
-  const [showBrowser, setShowBrowser] = useState(false);
-  const [browserData, setBrowserData] = useState<{
-    current_path: string;
-    parent_path: string | null;
-    directories: string[];
-    is_root: boolean;
-  } | null>(null);
-  const [isBrowserLoading, setIsBrowserLoading] = useState(false);
-  const [browserError, setBrowserError] = useState('');
-
-  const loadDirectory = async (path: string) => {
-    setIsBrowserLoading(true);
-    setBrowserError('');
-    try {
-      const data = await scansApi.browse(path);
-      setBrowserData(data);
-    } catch (err: any) {
-      setBrowserError(err.response?.data?.detail || err.message || 'Failed to load directory');
-    } finally {
-      setIsBrowserLoading(false);
-    }
-  };
-
+  const [selectedFolderFiles, setSelectedFolderFiles] = useState<File[] | null>(null);
+  const [selectedFolderName, setSelectedFolderName] = useState('');
+  const folderInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (folderInputRef.current) {
+      folderInputRef.current.setAttribute('webkitdirectory', '');
+      folderInputRef.current.setAttribute('directory', '');
+    }
+  }, []);
 
   const { data: projects } = useQuery({
     queryKey: ['projects-list'],
@@ -63,12 +48,56 @@ export default function NewScanDialog({ onClose, onSuccess }: NewScanDialogProps
   });
 
   const folderMutation = useMutation({
-    mutationFn: ({ path, types }: { path: string; types: ScanType[] }) =>
-      scansApi.folderScan(path, types),
+    mutationFn: (payload: { files: File[]; types: ScanType[] }) =>
+      scansApi.uploadFolder(payload.files, payload.types),
     onSuccess: () => onSuccess(),
   });
 
   const isPending = projectMutation.isPending || localMutation.isPending || folderMutation.isPending;
+
+  // Recursively walk a File System DirectoryHandle and collect File objects
+  async function collectFilesFromDirectory(handle: any, basePath = ''): Promise<File[]> {
+    const files: File[] = [];
+    for await (const [name, entry] of handle.entries()) {
+      if (entry.kind === 'file') {
+        try {
+          const fh: File = await entry.getFile();
+          // preserve relative path for upload
+          (fh as any).webkitRelativePath = basePath ? `${basePath}/${fh.name}` : fh.name;
+          files.push(fh);
+        } catch (err) {
+          // skip file if cannot be read
+        }
+      } else if (entry.kind === 'directory') {
+        const nested = await collectFilesFromDirectory(entry, basePath ? `${basePath}/${name}` : name);
+        files.push(...nested);
+      }
+    }
+    return files;
+  }
+
+  async function openFolderPicker() {
+    // Prefer showDirectoryPicker if available (Chrome, Edge, some browsers)
+    if ((window as any).showDirectoryPicker) {
+      try {
+        const dirHandle = await (window as any).showDirectoryPicker();
+        const files = await collectFilesFromDirectory(dirHandle, '');
+        if (files.length === 0) {
+          setSelectedFolderFiles(null);
+          setSelectedFolderName('');
+          return;
+        }
+        setSelectedFolderFiles(files);
+        setSelectedFolderName(dirHandle.name || files[0].name);
+        return;
+      } catch (err) {
+        // user cancelled or API error — fallthrough to input fallback
+      }
+    }
+
+    // Fallback to hidden file input with webkitdirectory
+    folderInputRef.current?.click();
+  }
 
 
 
@@ -88,17 +117,22 @@ export default function NewScanDialog({ onClose, onSuccess }: NewScanDialogProps
         types: Array.from(selectedTypes),
       });
     } else {
-      if (!folderPath) return;
-      folderMutation.mutate({
-        path: folderPath,
-        types: Array.from(selectedTypes),
-      });
+      if (selectedFolderFiles && selectedFolderFiles.length > 0) {
+        folderMutation.mutate({
+          files: selectedFolderFiles,
+          types: Array.from(selectedTypes),
+        });
+      }
     }
   };
 
   const canSubmit =
     selectedTypes.size > 0 &&
-    (mode === 'project' ? !!selectedProject : mode === 'local' ? !!selectedFile : !!folderPath);
+    (mode === 'project'
+      ? !!selectedProject
+      : mode === 'local'
+      ? !!selectedFile
+      : !!selectedFolderFiles);
 
   return (
     <AnimatePresence>
@@ -285,7 +319,7 @@ export default function NewScanDialog({ onClose, onSuccess }: NewScanDialogProps
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".zip"
+                  accept=".zip,.rar"
                   onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
                   style={{ display: 'none' }}
                 />
@@ -324,7 +358,7 @@ export default function NewScanDialog({ onClose, onSuccess }: NewScanDialogProps
                         Click to upload a ZIP file
                       </p>
                       <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                        ZIP your project folder and upload it for scanning
+                        ZIP hoặc RAR dự án của bạn và upload để quét
                       </p>
                     </>
                   )}
@@ -341,33 +375,43 @@ export default function NewScanDialog({ onClose, onSuccess }: NewScanDialogProps
                     marginBottom: 8,
                   }}
                 >
-                  Local Folder Path
+                  Select Local Folder
                 </label>
-                <div style={{ display: 'flex', gap: 10 }}>
-                  <input
-                    type="text"
-                    className="input"
-                    placeholder="e.g. D:\Code\my-project or /absolute/path/to/project"
-                    value={folderPath}
-                    onChange={(e) => setFolderPath(e.target.value)}
-                    style={{ height: 44, flex: 1 }}
-                  />
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={() => {
-                      setShowBrowser(true);
-                      loadDirectory('');
-                    }}
-                    style={{ height: 44, display: 'flex', alignItems: 'center', gap: 6, padding: '0 16px' }}
-                  >
-                    <FolderOpen size={16} />
-                    Browse
-                  </button>
-                </div>
-                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 6 }}>
-                  Enter the absolute directory path of the folder on the host machine.
+                <input
+                  ref={folderInputRef}
+                  type="file"
+                  multiple
+                  style={{ display: 'none' }}
+                  onChange={(e) => {
+                    const files = e.target.files ? Array.from(e.target.files) : [];
+                    if (files.length === 0) {
+                      setSelectedFolderFiles(null);
+                      setSelectedFolderName('');
+                      return;
+                    }
+                    setSelectedFolderFiles(files);
+                    const firstRelativePath = (files[0] as any).webkitRelativePath || files[0].name;
+                    const rootFolder = firstRelativePath.split('/')[0] || files[0].name;
+                    setSelectedFolderName(rootFolder);
+                  }}
+                />
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => openFolderPicker()}
+                  style={{ height: 44, display: 'flex', alignItems: 'center', gap: 8, padding: '0 18px' }}
+                >
+                  <FolderOpen size={16} />
+                  Open Folder
+                </button>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 10 }}>
+                  Choose a folder from your local machine and upload its contents for scanning.
                 </p>
+                {selectedFolderFiles && (
+                  <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 6 }}>
+                    Selected folder: <strong>{selectedFolderName}</strong> ({selectedFolderFiles.length} files)
+                  </p>
+                )}
               </div>
             )}
 
@@ -480,193 +524,6 @@ export default function NewScanDialog({ onClose, onSuccess }: NewScanDialogProps
           </div>
         </motion.div>
       </motion.div>
-
-      {/* Folder Browser Modal */}
-      {showBrowser && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0, 0, 0, 0.7)',
-            backdropFilter: 'blur(5px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 110,
-          }}
-        >
-          <div
-            style={{
-              width: 500,
-              background: 'var(--bg-secondary)',
-              border: '1px solid var(--border-primary)',
-              borderRadius: 16,
-              boxShadow: '0 20px 60px rgba(0, 0, 0, 0.6)',
-              overflow: 'hidden',
-              display: 'flex',
-              flexDirection: 'column',
-              maxHeight: '80vh',
-            }}
-          >
-            {/* Header */}
-            <div
-              style={{
-                padding: '16px 20px',
-                borderBottom: '1px solid var(--border-primary)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-              }}
-            >
-              <h3 style={{ fontWeight: 700, fontSize: '0.9375rem' }}>Select Local Folder</h3>
-              <button
-                className="btn btn-ghost"
-                onClick={() => setShowBrowser(false)}
-                style={{ padding: 6, borderRadius: 6 }}
-              >
-                <X size={16} />
-              </button>
-            </div>
-
-            {/* Path Breadcrumbs */}
-            <div
-              style={{
-                padding: '10px 20px',
-                background: 'rgba(15, 23, 42, 0.4)',
-                borderBottom: '1px solid var(--border-primary)',
-                fontSize: '0.75rem',
-                color: 'var(--text-secondary)',
-                wordBreak: 'break-all',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-              }}
-            >
-              <span style={{ fontWeight: 600 }}>Path:</span>
-              <span>{browserData?.current_path || 'Loading...'}</span>
-            </div>
-
-            {/* Directory List */}
-            <div
-              style={{
-                padding: 12,
-                overflowY: 'auto',
-                flex: 1,
-                minHeight: 250,
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 4,
-              }}
-            >
-              {isBrowserLoading ? (
-                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', flex: 1, color: 'var(--text-muted)' }}>
-                  <Loader2 className="animate-spin" size={24} />
-                </div>
-              ) : browserError ? (
-                <div style={{ color: 'var(--accent-red, #ef4444)', padding: 12, textAlign: 'center', fontSize: '0.8125rem' }}>
-                  {browserError}
-                </div>
-              ) : (
-                <>
-                  {/* Up directory option */}
-                  {browserData?.parent_path && (
-                    <div
-                      onClick={() => loadDirectory(browserData.parent_path!)}
-                      style={{
-                        padding: '8px 12px',
-                        borderRadius: 8,
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 10,
-                        background: 'transparent',
-                        fontSize: '0.8125rem',
-                        transition: 'background 150ms ease',
-                      }}
-                      onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)')}
-                      onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-                    >
-                      <FolderOpen size={16} color="var(--accent-indigo)" />
-                      <span style={{ fontWeight: 600 }}>.. (Parent Directory)</span>
-                    </div>
-                  )}
-
-                  {/* List of subdirectories */}
-                  {browserData?.directories.length === 0 ? (
-                    <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8125rem' }}>
-                      No folders in this directory
-                    </div>
-                  ) : (
-                    browserData?.directories.map((dirName) => (
-                      <div
-                        key={dirName}
-                        onDoubleClick={() => loadDirectory(`${browserData.current_path}/${dirName}`)}
-                        style={{
-                          padding: '10px 12px',
-                          borderRadius: 8,
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          background: 'transparent',
-                          fontSize: '0.8125rem',
-                          transition: 'background 150ms ease',
-                        }}
-                        onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)')}
-                        onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <Folder size={16} color="var(--accent-indigo)" />
-                          <span>{dirName}</span>
-                        </div>
-                        <button
-                          type="button"
-                          className="btn btn-ghost btn-sm"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            loadDirectory(`${browserData.current_path}/${dirName}`);
-                          }}
-                          style={{ padding: '2px 8px', fontSize: '0.6875rem' }}
-                        >
-                          Open
-                        </button>
-                      </div>
-                    ))
-                  )}
-                </>
-              )}
-            </div>
-
-            {/* Footer */}
-            <div
-              style={{
-                padding: '14px 20px',
-                borderTop: '1px solid var(--border-primary)',
-                display: 'flex',
-                justifyContent: 'flex-end',
-                gap: 10,
-                background: 'rgba(15, 23, 42, 0.2)',
-              }}
-            >
-              <button className="btn btn-secondary btn-sm" onClick={() => setShowBrowser(false)}>
-                Cancel
-              </button>
-              <button
-                className="btn btn-primary btn-sm"
-                disabled={!browserData}
-                onClick={() => {
-                  if (browserData) {
-                    setFolderPath(browserData.current_path);
-                    setShowBrowser(false);
-                  }
-                }}
-              >
-                Select Current Folder
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </AnimatePresence>
   );
 }

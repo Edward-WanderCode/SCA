@@ -16,9 +16,6 @@ import type {
 
 const api = axios.create({
   baseURL: '/api',
-  headers: {
-    'Content-Type': 'application/json',
-  },
 });
 
 // === Projects ===
@@ -77,10 +74,29 @@ export const scansApi = {
 
   localScan: async (file: File, scanTypes: ScanType[]) => {
     const formData = new FormData();
-    formData.append('file', file);
-    formData.append('scan_types', scanTypes.join(','));
+    formData.append('file', file, file.name);
+    formData.append('scan_types', scanTypes.length > 0 ? scanTypes.join(',') : 'combined');
     const { data } = await api.post<Scan[]>('/scans/local', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 20 * 60 * 1000,
+      headers: {
+        Accept: 'application/json',
+      },
+    });
+    return data;
+  },
+
+  uploadFolder: async (files: File[], scanTypes: ScanType[]) => {
+    const formData = new FormData();
+    files.forEach((file) => {
+      const path = (file as any).webkitRelativePath || file.name;
+      formData.append('files', file, path);
+    });
+    formData.append('scan_types', scanTypes.length > 0 ? scanTypes.join(',') : 'combined');
+    const { data } = await api.post<Scan[]>('/scans/local-folder', formData, {
+      timeout: 20 * 60 * 1000,
+      headers: {
+        Accept: 'application/json',
+      },
     });
     return data;
   },

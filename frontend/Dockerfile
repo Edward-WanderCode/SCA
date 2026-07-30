@@ -16,7 +16,7 @@ server { \
     listen 3000; \
     root /usr/share/nginx/html; \
     index index.html; \
-    client_max_body_size 200M; \
+    client_max_body_size 2G; \
     location / { \
         try_files $uri $uri/ /index.html; \
     } \

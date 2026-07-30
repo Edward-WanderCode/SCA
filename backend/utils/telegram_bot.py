@@ -9,6 +9,7 @@ import httpx
 from pathlib import Path
 from config import settings
 from db.session import async_session_factory
+from sqlalchemy import select
 from models.project import Project
 from models.scan import Scan, ScanStatus, ScanType
 from utils.telegram import send_telegram_notification, delete_telegram_topic, escape_html
@@ -356,6 +357,18 @@ async def process_rescan_project(project_id: str, scan_type: str, message_thread
                 send_telegram_notification(msg, message_thread_id=message_thread_id)
                 return
 
+            # Ensure project has a Telegram topic; create one if missing so rescan notifications go to project topic
+            if not project.telegram_topic_id:
+                try:
+                    from utils.telegram import create_telegram_topic
+                    thread_id = create_telegram_topic(project.name)
+                    if thread_id:
+                        project.telegram_topic_id = thread_id
+                        session.add(project)
+                        await session.commit()
+                except Exception as e:
+                    logger.error(f"Failed to create Telegram topic for project during rescan: {e}")
+
             # Create scan (Rescans are always combined scans now)
             scan = Scan(
                 project_id=project.id,
@@ -385,13 +398,14 @@ async def process_rescan_project(project_id: str, scan_type: str, message_thread
 
             await session.commit()
 
-            # Send update to project topic
+            # Send update to project topic (or fallback to provided message_thread_id)
             msg = (
                 f"🔄 <b>[SCA Platform]</b> Đã kích hoạt quét lại dự án <b>{escape_html(project.name)}</b>...\n"
                 f"• <b>Loại quét:</b> <code>{scan.scan_type.value.upper()}</code>\n"
                 f"• <b>ID quét:</b> <code>{scan.id}</code>"
             )
-            send_telegram_notification(msg, message_thread_id=project.telegram_topic_id)
+            target_thread = project.telegram_topic_id or message_thread_id
+            send_telegram_notification(msg, message_thread_id=target_thread)
 
         except Exception as e:
             logger.error(f"Error rescanning project {project_id} from Telegram command: {e}")
@@ -417,23 +431,40 @@ async def process_telegram_scan_trigger(upload_uuid: str, current_thread_id: int
     is_zip = file_name.lower().endswith(".zip")
     is_rar = file_name.lower().endswith(".rar")
     
-    # 1. Create a Project in DB
+    # 1. Create or reuse a Project in DB based on the uploaded filename
     clean_name = file_name.replace(".zip", "").replace(".rar", "").replace(".ZIP", "").replace(".RAR", "")
+    stable_repo_url = f"local://{file_name}"
     project_name = f"Telegram: {clean_name}"
-    repo_url = f"local://telegram_{upload_uuid}_{file_name}"
-    
+
     async with async_session_factory() as session:
         try:
-            # Create Project
-            project = Project(
-                name=project_name,
-                repo_url=repo_url,
-                description=f"Tải lên qua Telegram Topic Bot Command",
-                branch="local"
-            )
-            session.add(project)
-            await session.commit()
-            await session.refresh(project)
+            # Try exact match for a previously uploaded local file project
+            proj_q = select(Project).where(Project.repo_url == stable_repo_url)
+            proj_res = await session.execute(proj_q)
+            project = proj_res.scalars().first()
+
+            # Fallback: try fuzzy match for any local:// project that ends with the same filename
+            if not project:
+                fuzzy_q = select(Project).where(
+                    Project.repo_url.like(f"%{file_name}") & Project.repo_url.startswith("local://")
+                )
+                fuzzy_res = await session.execute(fuzzy_q)
+                project = fuzzy_res.scalars().first()
+
+            if not project:
+                # Create new project using stable local repo_url so future uploads reuse it
+                repo_url = stable_repo_url
+                project = Project(
+                    name=project_name,
+                    repo_url=repo_url,
+                    description=f"Tải lên qua Telegram Topic Bot Command",
+                    branch="local"
+                )
+                session.add(project)
+                await session.commit()
+                await session.refresh(project)
+            else:
+                project_name = project.name
             
             # 2. Extract ZIP or RAR or copy single file to project workspace
             project_workspace_dir = Path(settings.SCAN_WORKSPACE_DIR) / "projects" / project.id

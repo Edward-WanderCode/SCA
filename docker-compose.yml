@@ -44,7 +44,7 @@ services:
       PYTHONUNBUFFERED: "1"
 
     ports:
-      - "8000:8000"
+      - "8001:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -88,7 +88,7 @@ services:
   frontend:
     build: ./frontend
     ports:
-      - "3000:3000"
+      - "0.0.0.0:3000:3000"
     depends_on:
       - backend
     restart: unless-stopped

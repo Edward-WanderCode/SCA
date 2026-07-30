@@ -1,5 +1,6 @@
 """Scan management API routes."""
 
+import subprocess
 import uuid
 import shutil
 import zipfile
@@ -168,33 +169,47 @@ async def create_local_scan(
     scan_types: str = Form(...),
     db: AsyncSession = Depends(get_db),
 ):
-    """Scan a local code directory uploaded as a ZIP file."""
-    if not file.filename or not file.filename.endswith('.zip'):
-        raise HTTPException(status_code=400, detail="Only ZIP files are supported")
+    """Scan a local code directory uploaded as a ZIP or RAR file."""
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="A ZIP or RAR file is required")
+
+    filename_lower = file.filename.lower()
+    if not (filename_lower.endswith('.zip') or filename_lower.endswith('.rar')):
+        raise HTTPException(status_code=400, detail="Only ZIP and RAR files are supported")
+
+    if not scan_types or not scan_types.strip():
+        scan_types = ScanType.COMBINED.value
+
+    is_zip = filename_lower.endswith('.zip')
+    is_rar = filename_lower.endswith('.rar')
 
     try:
-        types = [ScanType(t.strip()) for t in scan_types.split(",")]
+        types = [ScanType(t.strip()) for t in scan_types.split(",") if t.strip()]
+        if not types:
+            types = [ScanType.COMBINED]
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Invalid scan type: {e}")
 
-    # Save ZIP to a temporary file
-    temp_zip_id = str(uuid.uuid4())
-    temp_zip_path = Path(settings.SCAN_WORKSPACE_DIR) / f"temp_{temp_zip_id}.zip"
+    # Save uploaded archive to a temporary file preserving its extension
+    suffix = Path(file.filename).suffix.lower() or ".zip"
+    temp_archive_id = str(uuid.uuid4())
+    temp_archive_path = Path(settings.SCAN_WORKSPACE_DIR) / f"temp_{temp_archive_id}{suffix}"
     Path(settings.SCAN_WORKSPACE_DIR).mkdir(parents=True, exist_ok=True)
 
     try:
         content = await file.read()
-        with open(temp_zip_path, "wb") as f:
+        with open(temp_archive_path, "wb") as f:
             f.write(content)
     except Exception as e:
-        if temp_zip_path.exists():
-            temp_zip_path.unlink()
+        if temp_archive_path.exists():
+            temp_archive_path.unlink()
         raise HTTPException(status_code=500, detail=f"Failed to save upload: {e}")
 
-    # Validate ZIP format once
-    if not zipfile.is_zipfile(temp_zip_path):
-        temp_zip_path.unlink()
-        raise HTTPException(status_code=400, detail="Invalid ZIP file structure")
+    # Validate archive format once
+    if is_zip:
+        if not zipfile.is_zipfile(temp_archive_path):
+            temp_archive_path.unlink()
+            raise HTTPException(status_code=400, detail="Invalid ZIP file structure")
 
     # Reuse existing project if same repo_url
     repo_url = f"local://{file.filename}"
@@ -239,13 +254,48 @@ async def create_local_scan(
     project_src_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        with zipfile.ZipFile(temp_zip_path, "r") as zf:
-            zf.extractall(project_src_dir)
+        if is_zip:
+            with zipfile.ZipFile(temp_archive_path, "r") as zf:
+                zf.extractall(project_src_dir)
+        else:
+            extract_dir = project_workspace_dir / "extract_temp"
+            if extract_dir.exists():
+                shutil.rmtree(extract_dir)
+            extract_dir.mkdir(parents=True, exist_ok=True)
+
+            if shutil.which("unrar"):
+                result = subprocess.run(
+                    ["unrar", "x", "-y", str(temp_archive_path), str(extract_dir)],
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode != 0:
+                    result = subprocess.run(
+                        ["unar", "-q", "-o", str(extract_dir), str(temp_archive_path)],
+                        capture_output=True,
+                        text=True,
+                    )
+            else:
+                result = subprocess.run(
+                    ["unar", "-q", "-o", str(extract_dir), str(temp_archive_path)],
+                    capture_output=True,
+                    text=True,
+                )
+            if result.returncode != 0:
+                raise RuntimeError(result.stderr or result.stdout or "RAR extraction failed")
+
+            for item in extract_dir.iterdir():
+                dest = project_src_dir / item.name
+                if item.is_dir():
+                    shutil.copytree(item, dest, dirs_exist_ok=True)
+                else:
+                    shutil.copy2(item, dest)
+            shutil.rmtree(extract_dir, ignore_errors=True)
     except Exception as e:
         shutil.rmtree(project_workspace_dir, ignore_errors=True)
-        if temp_zip_path.exists():
-            temp_zip_path.unlink()
-        raise HTTPException(status_code=500, detail=f"Failed to extract ZIP: {e}")
+        if temp_archive_path.exists():
+            temp_archive_path.unlink()
+        raise HTTPException(status_code=500, detail=f"Failed to extract archive: {e}")
 
     try:
         from workers.tasks import run_local_scan
@@ -260,9 +310,118 @@ async def create_local_scan(
     # Commit updates to celery_task_ids
     await db.commit()
 
-    # Clean up the temporary ZIP file
-    if temp_zip_path.exists():
-        temp_zip_path.unlink()
+    # Clean up the temporary archive file
+    if temp_archive_path.exists():
+        temp_archive_path.unlink()
+
+    return [
+        ScanResponse(
+            id=scan.id,
+            project_id=scan.project_id,
+            project_name=project_name,
+            scan_type=scan.scan_type,
+            status=scan.status,
+            progress=0,
+            progress_message=None,
+            celery_task_id=scan.celery_task_id,
+            started_at=scan.started_at,
+            completed_at=scan.completed_at,
+            duration_seconds=scan.duration_seconds,
+            error_message=scan.error_message,
+            summary=None,
+            created_at=scan.created_at,
+        )
+    ]
+
+
+@router.post('/local-folder', response_model=list[ScanResponse], status_code=201)
+async def create_local_folder_scan(
+    files: list[UploadFile] = File(...),
+    scan_types: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Scan a local folder uploaded as a directory tree from the browser."""
+    if not files:
+        raise HTTPException(status_code=400, detail="No folder files were uploaded")
+
+    if not scan_types or not scan_types.strip():
+        scan_types = ScanType.COMBINED.value
+
+    try:
+        types = [ScanType(t.strip()) for t in scan_types.split(',') if t.strip()]
+        if not types:
+            types = [ScanType.COMBINED]
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid scan type: {e}")
+
+    # Determine a stable folder name from the first uploaded relative path
+    first_path = getattr(files[0], 'filename', '')
+    if not first_path:
+        raise HTTPException(status_code=400, detail="Uploaded files must include a relative path")
+
+    normalized_first = first_path.replace('\\', '/').lstrip('/')
+    root_folder_name = normalized_first.split('/')[0] or 'uploaded-folder'
+    folder_label = root_folder_name
+    repo_url = f"local-folder://{folder_label}"
+
+    project_q = select(Project).where(Project.repo_url == repo_url)
+    project_result = await db.execute(project_q)
+    project = project_result.scalars().first()
+
+    if not project:
+        project_name = f"Local Folder: {folder_label}"
+        project = Project(
+            name=project_name,
+            repo_url=repo_url,
+            description="Uploaded folder scan",
+            branch="local",
+        )
+        db.add(project)
+        await db.flush()
+        await db.refresh(project)
+    else:
+        project_name = project.name
+
+    scan = Scan(
+        project_id=project.id,
+        scan_type=ScanType.COMBINED,
+        status=ScanStatus.PENDING,
+    )
+    db.add(scan)
+    await db.flush()
+    await db.refresh(scan)
+    await db.commit()
+
+    project_workspace_dir = Path(settings.SCAN_WORKSPACE_DIR) / "projects" / project.id
+    project_src_dir = project_workspace_dir / "src"
+    if project_src_dir.exists():
+        shutil.rmtree(project_src_dir)
+    project_src_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        for upload_file in files:
+            raw_path = getattr(upload_file, 'filename', '')
+            if not raw_path:
+                continue
+            rel_path = Path(raw_path.replace('\\', '/')).relative_to(root_folder_name)
+            dest_path = project_src_dir / rel_path
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
+            content = await upload_file.read()
+            with open(dest_path, 'wb') as out_file:
+                out_file.write(content)
+    except Exception as e:
+        shutil.rmtree(project_workspace_dir, ignore_errors=True)
+        raise HTTPException(status_code=500, detail=f"Failed to save uploaded folder files: {e}")
+
+    try:
+        from workers.tasks import run_local_scan
+        task = run_local_scan.delay(scan.id, ScanType.COMBINED.value, str(project_src_dir))
+        scan.celery_task_id = task.id
+        db.add(scan)
+    except Exception:
+        pass
+
+    await db.commit()
 
     return [
         ScanResponse(

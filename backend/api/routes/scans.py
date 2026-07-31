@@ -16,6 +16,7 @@ from models.user import User
 from schemas.scan import ScanCreate, ScanResponse, ScanListResponse, ScanSummary, FolderScanCreate
 from api.deps import get_current_active_user, require_analyst
 from config import settings
+from core.cache import clear_all_api_caches
 
 router = APIRouter()
 
@@ -171,6 +172,7 @@ async def create_scan(
 async def create_local_scan(
     file: UploadFile = File(...),
     scan_types: str = Form(...),
+    project_id: str | None = Form(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_analyst),
 ):
@@ -202,9 +204,10 @@ async def create_local_scan(
     Path(settings.SCAN_WORKSPACE_DIR).mkdir(parents=True, exist_ok=True)
 
     try:
-        content = await file.read()
-        with open(temp_archive_path, "wb") as f:
-            f.write(content)
+        import aiofiles
+        async with aiofiles.open(temp_archive_path, "wb") as f:
+            while chunk := await file.read(1024 * 1024):  # 1MB chunks
+                await f.write(chunk)
     except Exception as e:
         if temp_archive_path.exists():
             temp_archive_path.unlink()
@@ -216,25 +219,56 @@ async def create_local_scan(
             temp_archive_path.unlink()
             raise HTTPException(status_code=400, detail="Invalid ZIP file structure")
 
-    # Reuse existing project if same repo_url
-    repo_url = f"local://{file.filename}"
-    project_q = select(Project).where(Project.repo_url == repo_url)
-    project_result = await db.execute(project_q)
-    project = project_result.scalars().first()
-    
-    if not project:
-        project_name = f"Local: {file.filename.replace('.zip', '')}"
-        project = Project(
-            name=project_name,
-            repo_url=repo_url,
-            description="Uploaded via local scan",
-            branch="local",
-        )
-        db.add(project)
-        await db.flush()
-        await db.refresh(project)
-    else:
+    if project_id and project_id.strip():
+        project_q = select(Project).where(Project.id == project_id.strip())
+        project_result = await db.execute(project_q)
+        project = project_result.scalars().first()
+        if not project:
+            if temp_archive_path.exists():
+                temp_archive_path.unlink()
+            raise HTTPException(status_code=404, detail="Specified project not found")
         project_name = project.name
+    else:
+        # Reuse existing project if same repo_url or similar project base prefix
+        repo_url = f"local://{file.filename}"
+        project_q = select(Project).where(Project.repo_url == repo_url)
+        project_result = await db.execute(project_q)
+        project = project_result.scalars().first()
+        
+        if not project:
+            import re
+            clean_filename = file.filename.rsplit('.', 1)[0]
+            # Strip date stamps like 20260619, version tags like v1/v2, or fix suffixes
+            base_prefix = re.sub(r'[_.-]?(?:fix|v\d+|\d{8}|\d{6}).*$', '', clean_filename, flags=re.IGNORECASE).strip()
+            
+            if base_prefix and len(base_prefix) >= 3:
+                all_local_projects = (await db.execute(
+                    select(Project).where(Project.repo_url.like("local://%"))
+                )).scalars().all()
+
+                for p in all_local_projects:
+                    p_clean = p.name.replace("Local: ", "").strip()
+                    p_base = re.sub(r'[_.-]?(?:fix|v\d+|\d{8}|\d{6}).*$', '', p_clean, flags=re.IGNORECASE).strip()
+                    if p_base and (p_base.lower() == base_prefix.lower() or p_clean.lower().startswith(base_prefix.lower())):
+                        project = p
+                        project_name = p.name
+                        logger.info(f"Matched uploaded ZIP '{file.filename}' to existing project '{p.name}' (ID: {p.id})")
+                        break
+
+        if not project:
+            clean_filename = file.filename.rsplit('.', 1)[0]
+            project_name = f"Local: {clean_filename}"
+            project = Project(
+                name=project_name,
+                repo_url=repo_url,
+                description="Uploaded via local scan",
+                branch="local",
+            )
+            db.add(project)
+            await db.flush()
+            await db.refresh(project)
+        else:
+            project_name = project.name
 
     scans_data = []
     scan = Scan(
@@ -343,6 +377,7 @@ async def create_local_scan(
 async def create_local_folder_scan(
     files: list[UploadFile] = File(...),
     scan_types: str = Form(...),
+    project_id: str | None = Form(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_analyst),
 ):
@@ -368,25 +403,33 @@ async def create_local_folder_scan(
     normalized_first = first_path.replace('\\', '/').lstrip('/')
     root_folder_name = normalized_first.split('/')[0] or 'uploaded-folder'
     folder_label = root_folder_name
-    repo_url = f"local-folder://{folder_label}"
 
-    project_q = select(Project).where(Project.repo_url == repo_url)
-    project_result = await db.execute(project_q)
-    project = project_result.scalars().first()
-
-    if not project:
-        project_name = f"Local Folder: {folder_label}"
-        project = Project(
-            name=project_name,
-            repo_url=repo_url,
-            description="Uploaded folder scan",
-            branch="local",
-        )
-        db.add(project)
-        await db.flush()
-        await db.refresh(project)
-    else:
+    if project_id and project_id.strip():
+        project_q = select(Project).where(Project.id == project_id.strip())
+        project_result = await db.execute(project_q)
+        project = project_result.scalars().first()
+        if not project:
+            raise HTTPException(status_code=404, detail="Specified project not found")
         project_name = project.name
+    else:
+        repo_url = f"local-folder://{folder_label}"
+        project_q = select(Project).where(Project.repo_url == repo_url)
+        project_result = await db.execute(project_q)
+        project = project_result.scalars().first()
+
+        if not project:
+            project_name = f"Local Folder: {folder_label}"
+            project = Project(
+                name=project_name,
+                repo_url=repo_url,
+                description="Uploaded folder scan",
+                branch="local",
+            )
+            db.add(project)
+            await db.flush()
+            await db.refresh(project)
+        else:
+            project_name = project.name
 
     scan = Scan(
         project_id=project.id,
@@ -412,9 +455,10 @@ async def create_local_folder_scan(
             rel_path = Path(raw_path.replace('\\', '/')).relative_to(root_folder_name)
             dest_path = project_src_dir / rel_path
             dest_path.parent.mkdir(parents=True, exist_ok=True)
-            content = await upload_file.read()
-            with open(dest_path, 'wb') as out_file:
-                out_file.write(content)
+            import aiofiles
+            async with aiofiles.open(dest_path, 'wb') as out_file:
+                while chunk := await upload_file.read(1024 * 1024):
+                    await out_file.write(chunk)
     except Exception as e:
         shutil.rmtree(project_workspace_dir, ignore_errors=True)
         raise HTTPException(status_code=500, detail=f"Failed to save uploaded folder files: {e}")
@@ -464,27 +508,35 @@ async def create_folder_scan(
     except Exception:
         path_str = path_str.replace("\\", "/").strip()
 
-    # Reuse existing project if same repo_url
-    repo_url = f"folder://{path_str}"
-    project_q = select(Project).where(Project.repo_url == repo_url)
-    project_result = await db.execute(project_q)
-    project = project_result.scalars().first()
-    
-    if not project:
-        path_obj = Path(path_str)
-        project_name = f"Folder: {path_obj.name or path_str}"
-        
-        project = Project(
-            name=project_name,
-            repo_url=repo_url,
-            description="Local folder scan",
-            branch="local",
-        )
-        db.add(project)
-        await db.flush()
-        await db.refresh(project)
-    else:
+    if data.project_id and data.project_id.strip():
+        project_q = select(Project).where(Project.id == data.project_id.strip())
+        project_result = await db.execute(project_q)
+        project = project_result.scalars().first()
+        if not project:
+            raise HTTPException(status_code=404, detail="Specified project not found")
         project_name = project.name
+    else:
+        # Reuse existing project if same repo_url
+        repo_url = f"folder://{path_str}"
+        project_q = select(Project).where(Project.repo_url == repo_url)
+        project_result = await db.execute(project_q)
+        project = project_result.scalars().first()
+        
+        if not project:
+            path_obj = Path(path_str)
+            project_name = f"Folder: {path_obj.name or path_str}"
+            
+            project = Project(
+                name=project_name,
+                repo_url=repo_url,
+                description="Local folder scan",
+                branch="local",
+            )
+            db.add(project)
+            await db.flush()
+            await db.refresh(project)
+        else:
+            project_name = project.name
 
     scan = Scan(
         project_id=project.id,
@@ -605,3 +657,82 @@ async def delete_scan(
     if not scan:
         raise HTTPException(status_code=404, detail="Scan not found")
     await db.delete(scan)
+    await db.commit()
+    await clear_all_api_caches()
+
+
+@router.get("/{scan_id}/sarif")
+async def export_sarif(
+    scan_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Export scan findings in SARIF format."""
+    result = await db.execute(select(Scan).where(Scan.id == scan_id))
+    scan = result.scalar_one_or_none()
+    if not scan:
+        raise HTTPException(status_code=404, detail="Scan not found")
+
+    findings_result = await db.execute(select(Finding).where(Finding.scan_id == scan_id))
+    findings = findings_result.scalars().all()
+
+    sarif_log = {
+        "version": "2.1.0",
+        "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+        "runs": [
+            {
+                "tool": {
+                    "driver": {
+                        "name": "SCA Platform",
+                        "informationUri": "https://github.com/your-repo/sca-platform",
+                        "rules": []
+                    }
+                },
+                "results": []
+            }
+        ]
+    }
+
+    rules_added = set()
+    rules = sarif_log["runs"][0]["tool"]["driver"]["rules"]
+    results = sarif_log["runs"][0]["results"]
+
+    for finding in findings:
+        rule_id = finding.rule_id or "unknown-rule"
+        if rule_id not in rules_added:
+            rules.append({
+                "id": rule_id,
+                "shortDescription": {"text": finding.title or "Unknown rule"}
+            })
+            rules_added.add(rule_id)
+
+        result_obj = {
+            "ruleId": rule_id,
+            "message": {
+                "text": finding.description or finding.title or "No description"
+            },
+            "locations": [],
+            "properties": {
+                "severity": finding.severity.value if hasattr(finding.severity, "value") else str(finding.severity),
+                "status": finding.status
+            }
+        }
+
+        if finding.file_path:
+            location = {
+                "physicalLocation": {
+                    "artifactLocation": {
+                        "uri": finding.file_path
+                    }
+                }
+            }
+            if finding.line_start:
+                location["physicalLocation"]["region"] = {
+                    "startLine": finding.line_start,
+                    "endLine": finding.line_end or finding.line_start
+                }
+            result_obj["locations"].append(location)
+
+        results.append(result_obj)
+
+    return sarif_log

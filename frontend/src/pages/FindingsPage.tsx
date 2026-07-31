@@ -4,19 +4,47 @@ import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Filter, Search, FileCode, ExternalLink, ChevronRight, AlertTriangle, Shield, Key, Download, ChevronDown, ChevronLeft } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
-import { findingsApi, projectsApi } from '@/lib/api';
-import { severityConfig, timeAgo } from '@/lib/utils';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { findingsApi, projectsApi, default as api } from '@/lib/api';
+import { severityConfig } from '@/lib/utils';
 import type { Severity, Finding } from '@/types';
 
 export default function FindingsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const filterProjectId = searchParams.get('project_id') || '';
   const [filterSeverity, setFilterSeverity] = useState<Severity | ''>('');
+  const [filterStatus, setFilterStatus] = useState<string>('open');
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(1);
   const [selectedFinding, setSelectedFinding] = useState<Finding | null>(null);
   const [showExportMenu, setShowExportMenu] = useState(false);
+
+  const handleExportReport = async (format: 'html' | 'markdown' | 'json') => {
+    try {
+      setShowExportMenu(false);
+      const response = await api.get('/findings/export', {
+        params: {
+          format,
+          project_id: filterProjectId || undefined,
+          severity: filterSeverity || undefined,
+        },
+        responseType: 'blob',
+      });
+      const extension = format === 'html' ? 'html' : format === 'markdown' ? 'md' : 'json';
+      const mimeType = format === 'html' ? 'text/html' : format === 'markdown' ? 'text/markdown' : 'application/json';
+      const blob = new Blob([response.data], { type: mimeType });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `sca_report_${format}_${Date.now()}.${extension}`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error(`Failed to export ${format} report:`, err);
+    }
+  };
 
   // Fetch projects list for dropdown filter
   const { data: projectsData } = useQuery({
@@ -25,16 +53,29 @@ export default function FindingsPage() {
   });
   const projects = projectsData?.items || [];
 
+  const queryClient = useQueryClient();
   const { data, isLoading } = useQuery({
-    queryKey: ['findings', page, filterSeverity, filterProjectId, searchQuery],
+    queryKey: ['findings', page, filterSeverity, filterStatus, filterProjectId, searchQuery],
     queryFn: () =>
       findingsApi.list({
         page,
         page_size: 20,
         severity: filterSeverity || undefined,
+        status: filterStatus || undefined,
         project_id: filterProjectId || undefined,
         search: searchQuery || undefined,
       }),
+  });
+
+  const updateStatusMutation = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: string }) => findingsApi.updateStatus(id, status),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['findings'] });
+      // Update local state for selected finding if it's currently open
+      if (selectedFinding) {
+        setSelectedFinding({ ...selectedFinding, status: updateStatusMutation.variables?.status || 'open' });
+      }
+    },
   });
 
   const findings = data?.items || [];
@@ -105,6 +146,18 @@ export default function FindingsPage() {
           <option value="info">⚪ Info</option>
         </select>
 
+        <select
+          className="input"
+          value={filterStatus}
+          onChange={(e) => setFilterStatus(e.target.value)}
+          style={{ width: 140, height: 36, fontSize: '0.8125rem' }}
+        >
+          <option value="">All Statuses</option>
+          <option value="open">Open</option>
+          <option value="ignored">Ignored</option>
+          <option value="resolved">Resolved</option>
+        </select>
+
         <div style={{ position: 'relative' }}>
           <button
             className="btn btn-secondary"
@@ -156,11 +209,7 @@ export default function FindingsPage() {
                   }}
                   onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
                   onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                  onClick={() => {
-                    setShowExportMenu(false);
-                    const url = `/api/findings/export?format=html${filterProjectId ? `&project_id=${filterProjectId}` : ''}${filterSeverity ? `&severity=${filterSeverity}` : ''}`;
-                    window.open(url, '_blank');
-                  }}
+                  onClick={() => handleExportReport('html')}
                 >
                   📄 HTML Report
                 </button>
@@ -177,11 +226,7 @@ export default function FindingsPage() {
                   }}
                   onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
                   onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                  onClick={() => {
-                    setShowExportMenu(false);
-                    const url = `/api/findings/export?format=markdown${filterProjectId ? `&project_id=${filterProjectId}` : ''}${filterSeverity ? `&severity=${filterSeverity}` : ''}`;
-                    window.open(url, '_blank');
-                  }}
+                  onClick={() => handleExportReport('markdown')}
                 >
                   📝 Markdown Report
                 </button>
@@ -198,11 +243,7 @@ export default function FindingsPage() {
                   }}
                   onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
                   onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                  onClick={() => {
-                    setShowExportMenu(false);
-                    const url = `/api/findings/export?format=json${filterProjectId ? `&project_id=${filterProjectId}` : ''}${filterSeverity ? `&severity=${filterSeverity}` : ''}`;
-                    window.open(url, '_blank');
-                  }}
+                  onClick={() => handleExportReport('json')}
                 >
                   📦 JSON Data
                 </button>
@@ -296,6 +337,21 @@ export default function FindingsPage() {
                             ⚡ VERIFIED
                           </span>
                         )}
+                        <span style={{ 
+                          fontSize: '0.625rem', 
+                          padding: '2px 6px', 
+                          borderRadius: 4, 
+                          background: finding.status === 'open' ? 'rgba(239, 68, 68, 0.1)' : 
+                                     finding.status === 'ignored' ? 'rgba(156, 163, 175, 0.1)' : 
+                                     'rgba(16, 185, 129, 0.1)',
+                          color: finding.status === 'open' ? '#ef4444' : 
+                                 finding.status === 'ignored' ? '#9ca3af' : 
+                                 '#10b981',
+                          fontWeight: 600,
+                          textTransform: 'uppercase'
+                        }}>
+                          {finding.status}
+                        </span>
                       </div>
 
                       <p style={{
@@ -418,9 +474,36 @@ export default function FindingsPage() {
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-              <span className={`badge badge-${selectedFinding.severity}`}>
-                {severityConfig[selectedFinding.severity].label}
-              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <span className={`badge badge-${selectedFinding.severity}`}>
+                  {severityConfig[selectedFinding.severity].label}
+                </span>
+                
+                {/* Status Dropdown */}
+                <select
+                  className="input"
+                  value={selectedFinding.status}
+                  onChange={(e) => updateStatusMutation.mutate({ id: selectedFinding.id, status: e.target.value })}
+                  style={{
+                    height: 28,
+                    fontSize: '0.75rem',
+                    padding: '0 8px',
+                    width: 120,
+                    background: selectedFinding.status === 'open' ? 'rgba(239, 68, 68, 0.1)' : 
+                               selectedFinding.status === 'ignored' ? 'rgba(156, 163, 175, 0.1)' : 
+                               'rgba(16, 185, 129, 0.1)',
+                    color: selectedFinding.status === 'open' ? '#ef4444' : 
+                           selectedFinding.status === 'ignored' ? '#9ca3af' : 
+                           '#10b981',
+                    border: '1px solid currentColor',
+                    fontWeight: 600,
+                  }}
+                >
+                  <option value="open">OPEN</option>
+                  <option value="ignored">IGNORED</option>
+                  <option value="resolved">RESOLVED</option>
+                </select>
+              </div>
               <button className="btn btn-ghost btn-sm" onClick={() => setSelectedFinding(null)}>✕</button>
             </div>
 

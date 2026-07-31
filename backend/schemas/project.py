@@ -11,6 +11,8 @@ class ProjectCreate(BaseModel):
     description: str | None = Field(None, description="Project description")
     branch: str = Field("main", max_length=255, description="Branch to scan")
     language: str | None = Field(None, max_length=100, description="Primary language")
+    cron_schedule: str | None = Field(None, max_length=100, description="Cron expression for scheduled scans")
+    enabled_scanners: list[str] | None = Field(None, description="List of enabled scanners for combined scans")
 
 
 class ProjectUpdate(BaseModel):
@@ -20,6 +22,8 @@ class ProjectUpdate(BaseModel):
     description: str | None = None
     branch: str | None = Field(None, max_length=255)
     language: str | None = Field(None, max_length=100)
+    cron_schedule: str | None = Field(None, max_length=100)
+    enabled_scanners: list[str] | None = None
 
 
 class ProjectResponse(BaseModel):
@@ -30,6 +34,8 @@ class ProjectResponse(BaseModel):
     description: str | None = None
     branch: str
     language: str | None = None
+    cron_schedule: str | None = None
+    enabled_scanners: list[str] | None = None
     created_at: datetime
     updated_at: datetime
     total_scans: int = 0

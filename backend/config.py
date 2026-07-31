@@ -62,6 +62,10 @@ class Settings(BaseSettings):
         "http://127.0.0.1:5173",
     ]
 
+    # CI/CD Webhooks
+    GITHUB_TOKEN: Optional[str] = None
+    GITLAB_TOKEN: Optional[str] = None
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",

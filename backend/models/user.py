@@ -41,7 +41,7 @@ class User(Base):
         Boolean, default=False, nullable=False, server_default="false"
     )
     role: Mapped[UserRole] = mapped_column(
-        Enum(UserRole), default=UserRole.VIEWER, nullable=False
+        Enum(UserRole, values_callable=lambda obj: [e.value for e in obj]), default=UserRole.VIEWER, nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

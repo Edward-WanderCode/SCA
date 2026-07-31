@@ -7,10 +7,13 @@ import shutil
 import logging
 from pathlib import Path
 from config import settings
+from core.retry import retry_scanner, retry_git_clone
+from core.exceptions import ScannerError, GitCloneError
 
 logger = logging.getLogger(__name__)
 
 
+@retry_scanner
 def run_docker_scanner(
     image: str,
     command_args: list[str],
@@ -76,12 +79,13 @@ def run_docker_scanner(
         return result
     except subprocess.TimeoutExpired:
         logger.error(f"Scanner timed out after {timeout}s: {image}")
-        raise
+        raise ScannerError(image, f"Timed out after {timeout}s")
     except Exception as e:
         logger.error(f"Scanner error: {e}")
-        raise
+        raise ScannerError(image, str(e))
 
 
+@retry_git_clone
 def clone_repository(repo_url: str, target_dir: str, branch: str = "main") -> str:
     """
     Clone a Git repository to the workspace.
@@ -123,14 +127,14 @@ def clone_repository(repo_url: str, target_dir: str, branch: str = "main") -> st
             )
 
         if result.returncode != 0:
-            raise RuntimeError(f"Git clone failed: {result.stderr}")
+            raise GitCloneError(repo_url, result.stderr)
 
         logger.info(f"Repository cloned successfully to {repo_path}")
         return str(repo_path)
 
     except subprocess.TimeoutExpired:
         logger.error("Git clone timed out")
-        raise RuntimeError("Repository clone timed out")
+        raise GitCloneError(repo_url, "Clone timed out")
 
 
 def parse_json_stream(output: str) -> list[dict]:

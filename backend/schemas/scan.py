@@ -16,6 +16,7 @@ class ScanCreate(BaseModel):
 class FolderScanCreate(BaseModel):
     """Schema for triggering a new local folder scan."""
     folder_path: str = Field(..., description="Absolute path to the local directory to scan")
+    project_id: str | None = Field(None, description="Optional existing project ID to update")
     scan_types: list[ScanType] = Field(
         ..., min_length=1, description="Types of scans to run"
     )

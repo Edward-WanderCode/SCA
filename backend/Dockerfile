@@ -14,6 +14,7 @@ RUN curl -fsSL -o /usr/local/bin/opengrep https://github.com/opengrep/opengrep/r
     && chmod +x /usr/local/bin/opengrep
 
 WORKDIR /app
+ENV PYTHONPATH=/app
 
 # Install Python dependencies
 COPY requirements.txt .
@@ -29,5 +30,5 @@ RUN mkdir -p /app/workspace
 EXPOSE 8000
 
 # Run migrations then start the application
-CMD ["sh", "-c", "alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port 8000"]
+CMD ["sh", "-c", "PYTHONPATH=/app alembic upgrade head && PYTHONPATH=/app uvicorn main:app --host 0.0.0.0 --port 8000"]
 

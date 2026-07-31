@@ -96,6 +96,7 @@ export interface Finding {
   detector_type: string | null;
   verified: boolean | null;
   metadata_json: Record<string, unknown> | null;
+  status: string;
   created_at: string;
 }
 
@@ -161,4 +162,14 @@ export interface CriticalFinding {
   rule_id: string | null;
   cve_id: string | null;
   created_at: string;
+}
+
+export interface SystemSettings {
+  telegram_bot_token: string | null;
+  telegram_chat_id: string | null;
+  telegram_bot_command_thread_id: number | null;
+  opengrep_image: string;
+  trivy_image: string;
+  trufflehog_image: string;
+  max_concurrent_scans: number;
 }

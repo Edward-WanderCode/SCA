@@ -53,9 +53,12 @@ async def init_db():
 
     for attempt in range(max_retries):
         try:
-            async with engine.connect() as conn:
+            async with engine.begin() as conn:
                 await conn.execute(text("SELECT 1"))
-            logger.info("Database connection verified successfully")
+                from db.base import Base
+                import models  # Ensure all models are registered
+                await conn.run_sync(Base.metadata.create_all)
+            logger.info("Database connection verified and tables initialized successfully")
             return
         except Exception as e:
             if attempt < max_retries - 1:

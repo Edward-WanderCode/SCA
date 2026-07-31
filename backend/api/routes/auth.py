@@ -1,7 +1,7 @@
 """Authentication API routes."""
 
 import logging
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_
 
@@ -29,6 +29,7 @@ router = APIRouter()
 @limiter.limit("3/hour")
 async def register(
     request: Request,
+    response: Response,
     data: UserCreate,
     db: AsyncSession = Depends(get_db),
 ):
@@ -71,6 +72,7 @@ async def register(
 @limiter.limit("5/minute")
 async def login(
     request: Request,
+    response: Response,
     data: UserLogin,
     db: AsyncSession = Depends(get_db),
 ):
@@ -95,7 +97,10 @@ async def login(
         )
 
     # Generate tokens
-    access_token = create_access_token(subject=user.id)
+    access_token = create_access_token(
+        subject=user.id,
+        extra_claims={"role": user.role.value} if hasattr(user, "role") else {}
+    )
     refresh_token = create_refresh_token(subject=user.id)
 
     logger.info(f"User logged in: {user.username}")
@@ -145,7 +150,10 @@ async def refresh_token(
         )
 
     # Generate new tokens
-    new_access_token = create_access_token(subject=user.id)
+    new_access_token = create_access_token(
+        subject=user.id,
+        extra_claims={"role": user.role.value} if hasattr(user, "role") else {}
+    )
     new_refresh_token = create_refresh_token(subject=user.id)
 
     # Blacklist the old refresh token

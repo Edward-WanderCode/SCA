@@ -3,14 +3,18 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Plus, FolderGit2, ExternalLink, Trash2, Clock, Search as SearchIcon, GitBranch, RefreshCw } from 'lucide-react';
+import { Plus, FolderGit2, ExternalLink, Trash2, Clock, Search as SearchIcon, GitBranch, RefreshCw, Webhook, Settings } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { projectsApi } from '@/lib/api';
 import { formatDate, timeAgo } from '@/lib/utils';
+import { WebhookConfigModal } from '@/components/WebhookConfigModal';
+import { ProjectSettingsModal } from '@/components/ProjectSettingsModal';
 
 export default function ProjectsPage() {
   const navigate = useNavigate();
   const [showForm, setShowForm] = useState(false);
+  const [configModalProject, setConfigModalProject] = useState<{id: string, name: string} | null>(null);
+  const [settingsModalProject, setSettingsModalProject] = useState<any | null>(null);
   const [formData, setFormData] = useState({ name: '', repo_url: '', description: '', branch: 'main', language: '' });
   const queryClient = useQueryClient();
   const { data, isLoading } = useQuery({
@@ -319,6 +323,45 @@ export default function ProjectsPage() {
                       <RefreshCw size={12} className={rescanMutation.isPending ? 'spin' : ''} />
                       Rescan
                     </button>
+                    
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setConfigModalProject({ id: project.id, name: project.name });
+                      }}
+                      style={{
+                        padding: '4px 8px',
+                        fontSize: '0.75rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        color: 'var(--accent-indigo)',
+                      }}
+                    >
+                      <Webhook size={12} />
+                      Webhook
+                    </button>
+
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSettingsModalProject(project);
+                      }}
+                      style={{
+                        padding: '4px 8px',
+                        fontSize: '0.75rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        color: 'var(--text-secondary)',
+                      }}
+                    >
+                      <Settings size={12} />
+                      Settings
+                    </button>
+
                   {project.repo_url.startsWith('https://') && (
                     <a
                       href={project.repo_url}
@@ -336,6 +379,21 @@ export default function ProjectsPage() {
             </motion.div>
           ))}
         </div>
+      )}
+      
+      {configModalProject && (
+        <WebhookConfigModal
+          projectId={configModalProject.id}
+          projectName={configModalProject.name}
+          onClose={() => setConfigModalProject(null)}
+        />
+      )}
+
+      {settingsModalProject && (
+        <ProjectSettingsModal
+          project={settingsModalProject}
+          onClose={() => setSettingsModalProject(null)}
+        />
       )}
     </div>
   );

@@ -5,14 +5,26 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from config import settings
 from db.session import init_db, close_db
-
+from core.logging import setup_logging
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan: startup and shutdown events."""
+    # Setup structured logging
+    setup_logging()
+    
     # Startup
     await init_db()
     
+    # Load dynamic system settings from DB into config
+    try:
+        from db.session import AsyncSessionLocal
+        from api.routes.settings import sync_settings_to_config
+        async with AsyncSessionLocal() as session:
+            await sync_settings_to_config(session)
+    except Exception as e:
+        pass
+
     # Start Telegram Bot Polling in background
     import asyncio
     from utils.telegram_bot import start_telegram_bot_polling
@@ -41,6 +53,10 @@ app = FastAPI(
 
 # === Middleware Stack (order matters: last added = first executed) ===
 
+# Request Logging and correlation ID
+from middleware.logging import LoggingMiddleware
+app.add_middleware(LoggingMiddleware)
+
 # Security Headers Middleware
 from middleware import SecurityHeadersMiddleware
 app.add_middleware(SecurityHeadersMiddleware)
@@ -64,7 +80,7 @@ from api.error_handlers import register_exception_handlers
 register_exception_handlers(app)
 
 # Register routers
-from api.routes import projects, scans, results, dashboard  # noqa: E402
+from api.routes import projects, scans, results, dashboard, health, webhooks, settings as settings_routes  # noqa: E402
 from api.routes import auth  # noqa: E402
 
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
@@ -72,14 +88,7 @@ app.include_router(projects.router, prefix="/api/projects", tags=["Projects"])
 app.include_router(scans.router, prefix="/api/scans", tags=["Scans"])
 app.include_router(results.router, prefix="/api/findings", tags=["Findings"])
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"])
-
-
-@app.get("/api/health", tags=["Health"])
-async def health_check():
-    """Health check endpoint (unauthenticated)."""
-    return {
-        "status": "healthy",
-        "app": settings.APP_NAME,
-        "version": settings.APP_VERSION,
-    }
+app.include_router(health.router, prefix="/api", tags=["Health & Metrics"])
+app.include_router(webhooks.router, prefix="/api/webhooks", tags=["Webhooks"])
+app.include_router(settings_routes.router, prefix="/api/settings", tags=["Settings"])
 

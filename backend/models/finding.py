@@ -52,6 +52,7 @@ class Finding(Base):
     detector_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
     verified: Mapped[bool | None] = mapped_column(nullable=True)
     metadata_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="open", nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

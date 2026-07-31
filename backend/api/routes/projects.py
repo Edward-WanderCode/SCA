@@ -15,7 +15,8 @@ from schemas.project import (
 )
 from schemas.scan import ScanResponse
 from api.deps import get_current_active_user, require_admin
-
+import json
+from core.cache import redis_client, invalidate_cache, clear_all_api_caches
 
 router = APIRouter()
 
@@ -24,26 +25,23 @@ async def _get_project_findings(db: AsyncSession, project_id: str) -> tuple[dict
     """Get active findings summary and dynamic diff for a project."""
     from models.scan import ScanStatus
     
-    # Subquery to get max completed_at for each scan_type on this project
-    subq = (
+    # Subquery using ROW_NUMBER() to get the latest completed scan per scan_type
+    rn_subq = (
         select(
-            Scan.scan_type,
-            func.max(Scan.completed_at).label("max_completed_at")
+            Scan.id.label("scan_id"),
+            func.row_number().over(
+                partition_by=Scan.scan_type,
+                order_by=[desc(Scan.completed_at), desc(Scan.created_at)]
+            ).label("rn")
         )
         .where(Scan.project_id == project_id, Scan.status == ScanStatus.COMPLETED)
-        .group_by(Scan.scan_type)
         .subquery()
     )
     
     # Query to get the latest completed scan records
     latest_scans_q = (
         select(Scan)
-        .join(
-            subq,
-            (Scan.scan_type == subq.c.scan_type) &
-            (Scan.completed_at == subq.c.max_completed_at)
-        )
-        .where(Scan.project_id == project_id, Scan.status == ScanStatus.COMPLETED)
+        .where(Scan.id.in_(select(rn_subq.c.scan_id).where(rn_subq.c.rn == 1)))
     )
     latest_scans_result = await db.execute(latest_scans_q)
     latest_scans = latest_scans_result.scalars().all()
@@ -75,6 +73,11 @@ async def list_projects(
     current_user: User = Depends(get_current_active_user),
 ):
     """List all projects with pagination."""
+    cache_key = f"projects:list:{page}:{page_size}:{search or ''}"
+    cached = await redis_client.get(cache_key)
+    if cached:
+        return json.loads(cached)
+
     query = select(Project)
 
     if search:
@@ -114,6 +117,8 @@ async def list_projects(
                 description=project.description,
                 branch=project.branch,
                 language=project.language,
+                cron_schedule=project.cron_schedule,
+                enabled_scanners=project.enabled_scanners,
                 created_at=project.created_at,
                 updated_at=project.updated_at,
                 total_scans=scan_count,
@@ -123,9 +128,12 @@ async def list_projects(
             )
         )
 
-    return ProjectListResponse(
+    result = ProjectListResponse(
         items=items, total=total, page=page, page_size=page_size
     )
+    # Cache for 5 minutes
+    await redis_client.setex(cache_key, 300, result.model_dump_json())
+    return result
 
 
 @router.post("", response_model=ProjectResponse, status_code=201)
@@ -141,10 +149,14 @@ async def create_project(
         description=data.description,
         branch=data.branch,
         language=data.language,
+        cron_schedule=data.cron_schedule,
+        enabled_scanners=data.enabled_scanners,
     )
     db.add(project)
     await db.flush()
     await db.refresh(project)
+    
+    await clear_all_api_caches()
 
     return ProjectResponse(
         id=project.id,
@@ -153,6 +165,8 @@ async def create_project(
         description=project.description,
         branch=project.branch,
         language=project.language,
+        cron_schedule=project.cron_schedule,
+        enabled_scanners=project.enabled_scanners,
         created_at=project.created_at,
         updated_at=project.updated_at,
         total_scans=0,
@@ -193,6 +207,8 @@ async def get_project(
         description=project.description,
         branch=project.branch,
         language=project.language,
+        cron_schedule=project.cron_schedule,
+        enabled_scanners=project.enabled_scanners,
         created_at=project.created_at,
         updated_at=project.updated_at,
         total_scans=scan_count,
@@ -222,6 +238,8 @@ async def update_project(
 
     await db.flush()
     await db.refresh(project)
+    
+    await invalidate_cache("projects:list")
 
     return ProjectResponse(
         id=project.id,
@@ -230,6 +248,8 @@ async def update_project(
         description=project.description,
         branch=project.branch,
         language=project.language,
+        cron_schedule=project.cron_schedule,
+        enabled_scanners=project.enabled_scanners,
         created_at=project.created_at,
         updated_at=project.updated_at,
     )
@@ -271,6 +291,9 @@ async def delete_project(
         pass
 
     await db.delete(project)
+    await db.commit()
+    
+    await clear_all_api_caches()
 
 
 @router.post("/{project_id}/rescan", response_model=list[ScanResponse], status_code=201)
@@ -396,4 +419,66 @@ async def rescan_project(
             )
         )
     return created_scans
+
+from schemas.webhook import WebhookConfigResponse, WebhookGenerateRequest
+import secrets
+from config import settings
+
+@router.get("/{project_id}/webhook-config", response_model=WebhookConfigResponse)
+async def get_webhook_config(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Get the webhook configuration for a project."""
+    result = await db.execute(select(Project).where(Project.id == project_id))
+    project = result.scalar_one_or_none()
+    
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+        
+    if not project.webhook_secret:
+        raise HTTPException(status_code=404, detail="Webhook not configured for this project")
+        
+    provider = project.provider or "github"
+    base_url = "http://localhost:8000" # In production, this should be the public URL
+    webhook_url = f"{base_url}/api/webhooks/{provider}/{project_id}"
+    
+    return WebhookConfigResponse(
+        webhook_url=webhook_url,
+        webhook_secret=project.webhook_secret,
+        provider=project.provider
+    )
+
+@router.post("/{project_id}/webhook-config", response_model=WebhookConfigResponse)
+async def generate_webhook_config(
+    project_id: str,
+    data: WebhookGenerateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Generate a new webhook secret for a project."""
+    result = await db.execute(select(Project).where(Project.id == project_id))
+    project = result.scalar_one_or_none()
+    
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+        
+    if data.provider not in ["github", "gitlab"]:
+        raise HTTPException(status_code=400, detail="Invalid provider. Must be 'github' or 'gitlab'.")
+        
+    project.webhook_secret = secrets.token_urlsafe(32)
+    project.provider = data.provider
+    
+    await db.commit()
+    
+    base_url = "http://localhost:8000" # In production, this should be the public URL
+    webhook_url = f"{base_url}/api/webhooks/{data.provider}/{project_id}"
+    
+    return WebhookConfigResponse(
+        webhook_url=webhook_url,
+        webhook_secret=project.webhook_secret,
+        provider=project.provider
+    )
+
 

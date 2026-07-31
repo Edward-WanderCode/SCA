@@ -25,6 +25,7 @@ class FindingResponse(BaseModel):
     detector_type: str | None = None
     verified: bool | None = None
     metadata_json: dict | None = None
+    status: str = "open"
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -46,4 +47,9 @@ class FindingFilters(BaseModel):
     rule_id: str | None = None
     cve_id: str | None = None
     verified: bool | None = None
+    status: str | None = None
     search: str | None = Field(None, description="Search in title and description")
+
+class FindingUpdateStatus(BaseModel):
+    """Schema for updating finding status."""
+    status: str = Field(..., description="The new status (open, ignored, resolved)")

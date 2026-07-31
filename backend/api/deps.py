@@ -2,7 +2,7 @@
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Query, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from db.session import get_db
@@ -20,10 +20,11 @@ async def get_session(session: AsyncSession = Depends(get_db)) -> AsyncSession:
 
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(security_scheme),
+    token_query: str | None = Query(None, alias="token"),
     db: AsyncSession = Depends(get_db),
 ) -> User:
     """
-    Extract and validate JWT token from Authorization header.
+    Extract and validate JWT token from Authorization header or token query param.
     Returns the authenticated User object.
     """
     credentials_exception = HTTPException(
@@ -32,10 +33,10 @@ async def get_current_user(
         headers={"WWW-Authenticate": "Bearer"},
     )
 
-    if credentials is None:
-        raise credentials_exception
+    token = credentials.credentials if credentials else token_query
 
-    token = credentials.credentials
+    if not token:
+        raise credentials_exception
 
     # Verify token signature and expiry
     payload = verify_token(token)

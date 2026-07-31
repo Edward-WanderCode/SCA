@@ -103,83 +103,69 @@ class ScanService:
     def run_sast_scan(cls, repo_path: str) -> list[dict]:
         """
         Run optimal SAST scans on a repository by auto-detecting languages.
-
-        Args:
-            repo_path: Path to the cloned repository
-
-        Returns:
-            List of normalized finding dicts
         """
         logger.info(f"Running SAST scan orchestration on {repo_path}")
         languages = cls.detect_languages(repo_path)
         
         findings = []
         scanners_run = []
+        import concurrent.futures
 
-        # 1. Run Python-specific scanner
-        if "python" in languages:
+        def run_bandit():
+            if "python" in languages:
+                try:
+                    res = cls.run_bandit_scan(repo_path)
+                    return ("Bandit", res)
+                except Exception as e:
+                    logger.error(f"Bandit scan failed: {e}", exc_info=True)
+            return ("Bandit", [])
+
+        def run_gosec():
+            if "go" in languages:
+                try:
+                    res = cls.run_gosec_scan(repo_path)
+                    return ("GoSec", res)
+                except Exception as e:
+                    logger.error(f"GoSec scan failed: {e}", exc_info=True)
+            return ("GoSec", [])
+
+        def run_opengrep():
             try:
-                findings.extend(cls.run_bandit_scan(repo_path))
-                scanners_run.append("Bandit")
+                logger.info(f"Running OpenGrep polyglot scan on {repo_path}")
+                if settings.USE_LOCAL_OPENGREP:
+                    import subprocess
+                    cmd = ["opengrep", "scan", "--config", "auto", "--json", "--no-git-ignore", repo_path]
+                    proc_result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+                    stdout, stderr = proc_result.stdout, proc_result.stderr
+                else:
+                    result = run_docker_scanner(
+                        image=settings.OPENGREP_IMAGE,
+                        command_args=["opengrep", "scan", "--config", "auto", "--json", "--no-git-ignore", "/src"],
+                        volumes={repo_path: "/src"},
+                        timeout=600,
+                    )
+                    stdout, stderr = result.stdout, result.stderr
+
+                if stdout:
+                    output = parse_json_output(stdout)
+                    return ("OpenGrep", parse_opengrep_results(output))
+                else:
+                    logger.warning(f"OpenGrep produced no output. stderr: {stderr[:500]}")
             except Exception as e:
-                logger.error(f"Bandit scan failed: {e}", exc_info=True)
+                logger.error(f"OpenGrep scan failed: {e}", exc_info=True)
+            return ("OpenGrep", [])
 
-        # 2. Run Go-specific scanner
-        if "go" in languages:
-            try:
-                findings.extend(cls.run_gosec_scan(repo_path))
-                scanners_run.append("GoSec")
-            except Exception as e:
-                logger.error(f"GoSec scan failed: {e}", exc_info=True)
-
-        # 3. Run OpenGrep as polyglot scanner
-        try:
-            logger.info(f"Running OpenGrep polyglot scan on {repo_path}")
-            if settings.USE_LOCAL_OPENGREP:
-                import subprocess
-                cmd = [
-                    "opengrep",
-                    "scan",
-                    "--config", "auto",
-                    "--json",
-                    "--no-git-ignore",
-                    repo_path,
-                ]
-                logger.info(f"Running local scanner: {' '.join(cmd)}")
-                proc_result = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True,
-                    timeout=600,
-                )
-                stdout = proc_result.stdout
-                stderr = proc_result.stderr
-            else:
-                result = run_docker_scanner(
-                    image=settings.OPENGREP_IMAGE,
-                    command_args=[
-                        "opengrep",
-                        "scan",
-                        "--config", "auto",
-                        "--json",
-                        "--no-git-ignore",
-                        "/src",
-                    ],
-                    volumes={repo_path: "/src"},
-                    timeout=600,
-                )
-                stdout = result.stdout
-                stderr = result.stderr
-
-            if stdout:
-                output = parse_json_output(stdout)
-                opengrep_findings = parse_opengrep_results(output)
-                findings.extend(opengrep_findings)
-                scanners_run.append("OpenGrep")
-            else:
-                logger.warning(f"OpenGrep produced no output. stderr: {stderr[:500]}")
-        except Exception as e:
-            logger.error(f"OpenGrep scan failed: {e}", exc_info=True)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            futures = [
+                executor.submit(run_bandit),
+                executor.submit(run_gosec),
+                executor.submit(run_opengrep)
+            ]
+            for future in concurrent.futures.as_completed(futures):
+                name, res = future.result()
+                if res:
+                    scanners_run.append(name)
+                    findings.extend(res)
 
         logger.info(f"SAST scan complete. Scanners run: {scanners_run}. Total findings: {len(findings)}")
         return findings
@@ -262,26 +248,29 @@ class ScanService:
             List of finding dicts
         """
         if scan_type == "combined":
+            import concurrent.futures
             findings = []
             
-            # 1. Run SAST Scan
-            try:
-                findings.extend(cls.run_sast_scan(repo_path))
-            except Exception as e:
-                logger.error(f"SAST scan failed inside combined scan: {e}")
+            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+                future_sast = executor.submit(cls.run_sast_scan, repo_path)
+                future_vuln = executor.submit(cls.run_vulnerability_scan, repo_path)
+                future_secret = executor.submit(cls.run_secret_scan, repo_path)
                 
-            # 2. Run Vulnerability Scan
-            try:
-                findings.extend(cls.run_vulnerability_scan(repo_path))
-            except Exception as e:
-                logger.error(f"Vulnerability scan failed inside combined scan: {e}")
-                
-            # 3. Run Secret Scan
-            try:
-                findings.extend(cls.run_secret_scan(repo_path))
-            except Exception as e:
-                logger.error(f"Secret scan failed inside combined scan: {e}")
-                
+                try:
+                    findings.extend(future_sast.result())
+                except Exception as e:
+                    logger.error(f"SAST scan failed inside combined scan: {e}")
+                    
+                try:
+                    findings.extend(future_vuln.result())
+                except Exception as e:
+                    logger.error(f"Vulnerability scan failed inside combined scan: {e}")
+                    
+                try:
+                    findings.extend(future_secret.result())
+                except Exception as e:
+                    logger.error(f"Secret scan failed inside combined scan: {e}")
+                    
             return findings
 
         scanners = {

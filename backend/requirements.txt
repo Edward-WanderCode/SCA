@@ -12,6 +12,7 @@ alembic==1.14.1
 # Authentication & Security
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
+bcrypt==3.2.2
 slowapi==0.1.9
 
 # Redis & Celery
@@ -35,3 +36,16 @@ orjson==3.10.14
 
 # CORS
 starlette==0.41.3
+
+# Observability & Reliability (Phase 2)
+tenacity==8.3.0
+loguru==0.7.2
+prometheus-client==0.20.0
+
+# Testing (Phase 3)
+pytest==7.4.3
+pytest-asyncio==0.21.1
+pytest-cov==4.1.0
+faker==22.0.0
+PyJWT==2.10.1
+croniter==5.0.1

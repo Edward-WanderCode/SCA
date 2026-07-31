@@ -4,12 +4,14 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc, and_, cast, Date
+import json
 from db.session import get_db
 from models.scan import Scan, ScanStatus, ScanType
 from models.finding import Finding, Severity
 from models.project import Project
 from models.user import User
 from api.deps import get_current_active_user
+from core.cache import redis_client
 
 router = APIRouter()
 
@@ -20,6 +22,11 @@ async def get_dashboard_stats(
     current_user: User = Depends(get_current_active_user),
 ):
     """Get aggregate dashboard statistics."""
+    cache_key = "dashboard:stats"
+    cached = await redis_client.get(cache_key)
+    if cached:
+        return json.loads(cached)
+
     # Total projects
     total_projects = (
         await db.execute(select(func.count()).select_from(Project))
@@ -65,7 +72,7 @@ async def get_dashboard_stats(
     type_result = await db.execute(type_q)
     type_counts = {k.value: v for k, v in type_result.all()}
 
-    return {
+    result = {
         "total_projects": total_projects,
         "total_scans": total_scans,
         "completed_scans": completed_scans,
@@ -85,6 +92,9 @@ async def get_dashboard_stats(
             "combined": type_counts.get("combined", 0),
         },
     }
+    
+    await redis_client.setex(cache_key, 300, json.dumps(result))
+    return result
 
 
 @router.get("/trends")

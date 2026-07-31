@@ -4,6 +4,7 @@ from models.project import Project
 from models.scan import Scan, ScanType, ScanStatus
 from models.finding import Finding, Severity
 from models.user import User, UserRole
+from models.setting import SystemSetting
 
 __all__ = [
     "Project",
@@ -14,5 +15,6 @@ __all__ = [
     "Severity",
     "User",
     "UserRole",
+    "SystemSetting",
 ]
 

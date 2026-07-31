@@ -1,13 +1,15 @@
-/* Scans management page */
+/* Scans management page with Scan Code Update action */
 
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
-import { Plus, Filter, Clock, Trash2 } from 'lucide-react';
-import { scansApi } from '@/lib/api';
+import { Plus, Filter, Clock, Trash2, Download, RefreshCw } from 'lucide-react';
+import { scansApi, default as api } from '@/lib/api';
 import { scanTypeConfig, statusConfig, timeAgo, formatDuration } from '@/lib/utils';
 import type { ScanType, ScanStatus, Scan } from '@/types';
 import NewScanDialog from '@/components/scans/NewScanDialog';
+import UpdateCodeModal from '@/components/scans/UpdateCodeModal';
 
 function ScanProgressBar({ scan }: { scan: Scan }) {
   const isActive = scan.status === 'running' || scan.status === 'pending';
@@ -27,9 +29,9 @@ function ScanProgressBar({ scan }: { scan: Scan }) {
         />
       </div>
       <div className="scan-progress-info">
-        <span className="scan-progress-percent">{progress}%</span>
+        <span className="scan-progress-percentage">{progress}%</span>
         <span className="scan-progress-message">
-          {scan.progress_message || (scan.status === 'pending' ? 'Queued...' : 'Starting...')}
+          {scan.progress_message || (scan.status === 'pending' ? 'Queued...' : 'Scanning...')}
         </span>
       </div>
     </div>
@@ -37,22 +39,43 @@ function ScanProgressBar({ scan }: { scan: Scan }) {
 }
 
 export default function ScansPage() {
-  const [showNewScan, setShowNewScan] = useState(false);
-  const [filterType, setFilterType] = useState<ScanType | ''>('');
-  const [filterStatus, setFilterStatus] = useState<ScanStatus | ''>('');
-  const [page, setPage] = useState(1);
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [typeFilter, setTypeFilter] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [showNewScan, setShowNewScan] = useState(false);
+  const [updateModalScan, setUpdateModalScan] = useState<Scan | null>(null);
+
+  const handleDownloadSarif = async (scanId: string) => {
+    try {
+      const response = await api.get(`/scans/${scanId}/sarif`, { responseType: 'blob' });
+      const blob = new Blob([response.data], { type: 'application/json' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `scan_${scanId.substring(0, 8)}.sarif`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Failed to download SARIF:', err);
+    }
+  };
 
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ['scans', page, filterType, filterStatus],
+    queryKey: ['scans', typeFilter, statusFilter],
     queryFn: () =>
       scansApi.list({
-        page,
-        page_size: 20,
-        scan_type: filterType || undefined,
-        status: filterStatus || undefined,
+        scan_type: typeFilter !== 'all' ? (typeFilter as ScanType) : undefined,
+        status: statusFilter !== 'all' ? (statusFilter as ScanStatus) : undefined,
+        page_size: 50,
       }),
-    refetchInterval: 5000,
+    refetchInterval: (query) => {
+      const scans = query.state.data?.items || [];
+      const hasActive = scans.some((s) => s.status === 'running' || s.status === 'pending');
+      return hasActive ? 2000 : 10000;
+    },
   });
 
   const deleteMutation = useMutation({
@@ -63,12 +86,10 @@ export default function ScansPage() {
   });
 
   const scans = data?.items || [];
-  const total = data?.total || 0;
-  const displayScans: Scan[] = scans;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-      {/* Header */}
+      {/* Top Action Bar */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
           <h2 style={{ fontSize: '1.25rem', fontWeight: 700 }}>Security Scans</h2>
@@ -76,119 +97,122 @@ export default function ScansPage() {
             Manage and monitor your security scan operations
           </p>
         </div>
-        <button className="btn btn-primary" onClick={() => setShowNewScan(true)}>
-          <Plus size={18} />
-          New Scan
+        <button
+          className="btn btn-primary"
+          onClick={() => setShowNewScan(true)}
+          style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+        >
+          <Plus size={16} /> New Scan
         </button>
       </div>
 
-      {/* Filters */}
+      {/* Filter Bar */}
       <div
         className="glass-card"
         style={{
-          padding: '16px 20px',
+          padding: '14px 20px',
           display: 'flex',
           alignItems: 'center',
-          gap: 12,
+          justifyContent: 'space-between',
         }}
       >
-        <Filter size={16} color="var(--text-muted)" />
-        <select
-          className="input"
-          value={filterType}
-          onChange={(e) => setFilterType(e.target.value as ScanType | '')}
-          style={{ width: 160, height: 36, fontSize: '0.8125rem' }}
-        >
-          <option value="">All Types</option>
-          <option value="sast">🔍 SAST</option>
-          <option value="vulnerability">🛡️ Vulnerability</option>
-          <option value="secret">🔑 Secret</option>
-        </select>
-
-        <select
-          className="input"
-          value={filterStatus}
-          onChange={(e) => setFilterStatus(e.target.value as ScanStatus | '')}
-          style={{ width: 160, height: 36, fontSize: '0.8125rem' }}
-        >
-          <option value="">All Status</option>
-          <option value="pending">Pending</option>
-          <option value="running">Running</option>
-          <option value="completed">Completed</option>
-          <option value="failed">Failed</option>
-        </select>
-
-        <div style={{ flex: 1 }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <Filter size={16} color="var(--text-muted)" />
+          <select
+            className="input"
+            value={typeFilter}
+            onChange={(e) => setTypeFilter(e.target.value)}
+            style={{ width: 140, padding: '6px 12px', fontSize: '0.8125rem' }}
+          >
+            <option value="all">All Types</option>
+            <option value="sast">SAST</option>
+            <option value="vulnerability">Vulnerability</option>
+            <option value="secret">Secret</option>
+            <option value="combined">Combined</option>
+          </select>
+          <select
+            className="input"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            style={{ width: 140, padding: '6px 12px', fontSize: '0.8125rem' }}
+          >
+            <option value="all">All Status</option>
+            <option value="pending">Pending</option>
+            <option value="running">Running</option>
+            <option value="completed">Completed</option>
+            <option value="failed">Failed</option>
+          </select>
+        </div>
         <span style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
-          {total} scans
+          {scans.length} scans
         </span>
       </div>
 
       {/* Scans Table */}
-      <motion.div
-        className="glass-card"
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        style={{ overflow: 'hidden' }}
-      >
+      <motion.div className="glass-card" style={{ overflowX: 'auto' }}>
         <table className="data-table">
           <thead>
             <tr>
-              <th>Project</th>
-              <th>Scan Type</th>
-              <th>Status</th>
-              <th>Findings</th>
-              <th>Duration</th>
-              <th>Started</th>
-              <th style={{ width: 50 }}></th>
+              <th style={{ minWidth: 220 }}>Project</th>
+              <th style={{ width: 140 }}>Scan Type</th>
+              <th style={{ minWidth: 160 }}>Status</th>
+              <th style={{ minWidth: 180 }}>Findings</th>
+              <th style={{ width: 110 }}>Duration</th>
+              <th style={{ width: 130 }}>Started</th>
+              <th style={{ width: 200, textAlign: 'right' }}>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {displayScans.length === 0 ? (
+            {isLoading ? (
               <tr>
-                <td colSpan={7} style={{ padding: 48, textAlign: 'center', color: 'var(--text-muted)' }}>
+                <td colSpan={7} style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>
+                  Loading scans...
+                </td>
+              </tr>
+            ) : scans.length === 0 ? (
+              <tr>
+                <td colSpan={7} style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>
                   No scans found
                 </td>
               </tr>
             ) : (
-              displayScans.map((scan, idx) => {
+              scans.map((scan) => {
                 const typeConf = scanTypeConfig[scan.scan_type];
-
                 return (
                   <motion.tr
                     key={scan.id}
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
-                    transition={{ delay: idx * 0.03 }}
+                    onClick={() => navigate(`/findings?project_id=${scan.project_id}`)}
+                    style={{ cursor: 'pointer' }}
                   >
                     <td>
-                      <span style={{ fontWeight: 500, color: 'var(--text-primary)' }}>
-                        {scan.project_name}
-                      </span>
+                      <div>
+                        <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+                          {scan.project_name || '—'}
+                        </span>
+                      </div>
                     </td>
                     <td>
-                      <div
+                      <span
+                        className="badge"
                         style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 6,
-                          padding: '4px 10px',
-                          borderRadius: 6,
                           background: `${typeConf.color}15`,
+                          color: typeConf.color,
                           border: `1px solid ${typeConf.color}30`,
-                          fontSize: '0.8125rem',
+                          whiteSpace: 'nowrap',
                         }}
                       >
                         {typeConf.icon} {typeConf.label}
-                      </div>
+                      </span>
                     </td>
-                    <td style={{ minWidth: 160 }}>
+                    <td>
                       <ScanProgressBar scan={scan} />
                     </td>
                     <td>
                       {scan.summary ? (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                          <div style={{ display: 'flex', gap: 6 }}>
+                        <div>
+                          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                             {scan.summary.critical > 0 && (
                               <span className="badge badge-critical" style={{ fontSize: '0.625rem' }}>
                                 {scan.summary.critical}C
@@ -233,35 +257,79 @@ export default function ScansPage() {
                       )}
                     </td>
                     <td>
-                      <span style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', fontFamily: "'JetBrains Mono', monospace" }}>
+                      <span style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap' }}>
                         {formatDuration(scan.duration_seconds)}
                       </span>
                     </td>
                     <td>
-                      <span style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <span style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
                         <Clock size={12} />
                         {timeAgo(scan.created_at)}
                       </span>
                     </td>
-                    <td>
-                      <button
-                        className="btn btn-ghost btn-sm"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (confirm('Delete this scan and all its findings?')) {
-                            deleteMutation.mutate(scan.id);
-                          }
-                        }}
-                        disabled={scan.status === 'running'}
-                        style={{
-                          padding: 6,
-                          color: 'var(--text-muted)',
-                          opacity: scan.status === 'running' ? 0.3 : 1,
-                        }}
-                        title="Delete scan"
-                      >
-                        <Trash2 size={14} />
-                      </button>
+                    <td style={{ textAlign: 'right' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
+                        {scan.status === 'completed' && (
+                          <>
+                            <button
+                              className="btn btn-secondary btn-sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setUpdateModalScan(scan);
+                              }}
+                              style={{
+                                padding: '4px 8px',
+                                fontSize: '0.75rem',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                background: 'rgba(99, 102, 241, 0.12)',
+                                border: '1px solid rgba(99, 102, 241, 0.3)',
+                                color: '#818cf8',
+                                fontWeight: 600,
+                                borderRadius: 6,
+                                whiteSpace: 'nowrap',
+                              }}
+                              title="Scan Code Update (Quét lại mã nguồn mới)"
+                            >
+                              <RefreshCw size={12} />
+                              Code Update
+                            </button>
+                            <button
+                              className="btn btn-ghost btn-sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDownloadSarif(scan.id);
+                              }}
+                              style={{
+                                padding: 6,
+                                color: 'var(--accent-indigo)',
+                              }}
+                              title="Download SARIF"
+                            >
+                              <Download size={14} />
+                            </button>
+                          </>
+                        )}
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (confirm('Delete this scan and all its findings?')) {
+                              deleteMutation.mutate(scan.id);
+                            }
+                          }}
+                          disabled={scan.status === 'running'}
+                          style={{
+                            padding: 6,
+                            color: 'var(--text-muted)',
+                            opacity: scan.status === 'running' ? 0.3 : 1,
+                          }}
+                          title="Delete scan"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
                     </td>
                   </motion.tr>
                 );
@@ -277,6 +345,19 @@ export default function ScansPage() {
           onClose={() => setShowNewScan(false)}
           onSuccess={() => {
             setShowNewScan(false);
+            refetch();
+          }}
+        />
+      )}
+
+      {/* Update Code Modal */}
+      {updateModalScan && (
+        <UpdateCodeModal
+          projectId={updateModalScan.project_id}
+          projectName={updateModalScan.project_name || 'Project'}
+          onClose={() => setUpdateModalScan(null)}
+          onSuccess={() => {
+            setUpdateModalScan(null);
             refetch();
           }}
         />

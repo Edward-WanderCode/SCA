@@ -11,6 +11,8 @@ from models.finding import Finding
 from models.project import Project
 from services.scan_service import ScanService
 from utils.scanner_utils import clone_repository, cleanup_workspace
+from services.webhook_service import post_github_commit_status, post_github_pr_comment
+from core.cache import clear_all_api_caches_sync
 
 logger = logging.getLogger(__name__)
 
@@ -241,6 +243,63 @@ def handle_rescan_optimization(session: Session, scan: Scan, repo_path: str, sca
         
     return False, None
 
+def _apply_baseline_management(session: Session, project_id: str, finding_dicts: list[dict]):
+    """Inherit ignored status from previous scans for baseline management."""
+    # Find all ignored findings for this project across all completed scans
+    ignored_findings = (
+        session.query(Finding)
+        .join(Scan, Finding.scan_id == Scan.id)
+        .filter(
+            Scan.project_id == project_id,
+            Scan.status == ScanStatus.COMPLETED,
+            Finding.status == "ignored"
+        )
+        .all()
+    )
+    
+    # Create a set of signatures for ignored findings
+    ignored_signatures = set()
+    for f in ignored_findings:
+        sig = (f.rule_id or "", f.file_path or "", f.title or "")
+        ignored_signatures.add(sig)
+        
+    # Apply to new findings
+    for fd in finding_dicts:
+        sig = (fd.get("rule_id") or "", fd.get("file_path") or "", fd.get("title") or "")
+        if sig in ignored_signatures:
+            fd["status"] = "ignored"
+        else:
+            fd["status"] = "open"
+
+
+def _execute_combined_scan(session: Session, scan: Scan, source_path: str, project: Project) -> list[dict]:
+    """Execute a combined scan based on project's enabled scanners."""
+    finding_dicts = []
+    scanners = project.enabled_scanners or ["secret", "vulnerability", "sast"]
+    
+    if "secret" in scanners:
+        _update_progress(session, scan, 30, "Running secret detection...")
+        try:
+            finding_dicts.extend(ScanService.run_secret_scan(source_path))
+        except Exception as e:
+            logger.error(f"Secret scan failed: {e}")
+            
+    if "vulnerability" in scanners:
+        _update_progress(session, scan, 50, "Running dependency vulnerability scan...")
+        try:
+            finding_dicts.extend(ScanService.run_vulnerability_scan(source_path))
+        except Exception as e:
+            logger.error(f"Vulnerability scan failed: {e}")
+            
+    if "sast" in scanners:
+        _update_progress(session, scan, 70, "Running SAST analysis...")
+        try:
+            finding_dicts.extend(ScanService.run_sast_scan(source_path))
+        except Exception as e:
+            logger.error(f"SAST scan failed: {e}")
+            
+    return finding_dicts
+
 
 def compute_and_save_findings_diff(session: Session, scan: Scan, current_findings: list[Finding]):
     """Compute findings difference compared to the previous completed scan."""
@@ -305,13 +364,14 @@ def compute_and_save_findings_diff(session: Session, scan: Scan, current_finding
 
 
 @celery_app.task(bind=True, name="workers.tasks.run_scan")
-def run_scan(self, scan_id: str, scan_type: str):
+def run_scan(self, scan_id: str, scan_type: str, webhook_metadata: dict = None):
     """
     Execute a security scan asynchronously.
 
     Args:
         scan_id: UUID of the Scan record
         scan_type: Type of scan (sast, vulnerability, secret)
+        webhook_metadata: Information about the triggering webhook (commit_sha, pr_number)
     """
     session = SyncSession()
     repo_path = None
@@ -334,6 +394,15 @@ def run_scan(self, scan_id: str, scan_type: str):
         project = session.query(Project).filter(Project.id == scan.project_id).first()
         if not project:
             raise ValueError(f"Project {scan.project_id} not found")
+
+        # Post pending commit status
+        if webhook_metadata and webhook_metadata.get("commit_sha") and project.provider == "github":
+            post_github_commit_status(
+                project.repo_url,
+                webhook_metadata["commit_sha"],
+                "pending",
+                "Scan is running..."
+            )
 
         # Ensure project has a Telegram topic
         _ensure_project_telegram_topic(session, project)
@@ -371,33 +440,16 @@ def run_scan(self, scan_id: str, scan_type: str):
             finding_dicts = prev_finding_dicts
         else:
             if scan_type == "combined":
-                finding_dicts = []
-                # Step 1: Secret Scan
-                _update_progress(session, scan, 30, "Running secret detection...")
-                try:
-                    finding_dicts.extend(ScanService.run_secret_scan(repo_path))
-                except Exception as e:
-                    logger.error(f"Secret scan failed: {e}")
-
-                # Step 2: Vulnerability Scan
-                _update_progress(session, scan, 50, "Running dependency vulnerability scan...")
-                try:
-                    finding_dicts.extend(ScanService.run_vulnerability_scan(repo_path))
-                except Exception as e:
-                    logger.error(f"Vulnerability scan failed: {e}")
-
-                # Step 3: SAST Scan
-                _update_progress(session, scan, 70, "Running SAST analysis...")
-                try:
-                    finding_dicts.extend(ScanService.run_sast_scan(repo_path))
-                except Exception as e:
-                    logger.error(f"SAST scan failed: {e}")
+                finding_dicts = _execute_combined_scan(session, scan, repo_path, project)
             else:
                 _update_progress(session, scan, 40, f"Running {scan_type} analysis...")
                 logger.info(f"Executing {scan_type} scan for project {project.name}")
                 finding_dicts = ScanService.execute_scan(scan_type, repo_path)
 
         _update_progress(session, scan, 70, "Processing findings...")
+        
+        # Apply baseline management
+        _apply_baseline_management(session, scan.project_id, finding_dicts)
 
         # Save findings to database
         findings_saved = 0
@@ -421,8 +473,8 @@ def run_scan(self, scan_id: str, scan_type: str):
                 package_version=fd.get("package_version"),
                 fixed_version=fd.get("fixed_version"),
                 detector_type=fd.get("detector_type"),
-                verified=fd.get("verified"),
                 metadata_json=fd.get("metadata_json"),
+                status=fd.get("status", "open"),
             )
             session.add(finding)
             added_findings.append(finding)
@@ -451,6 +503,9 @@ def run_scan(self, scan_id: str, scan_type: str):
             **severity_counts,
         }
         session.commit()
+        
+        # Invalidate API cache so new findings immediately appear on dashboard and findings page
+        clear_all_api_caches_sync()
 
         # Send Telegram notification (Success)
         _send_scan_completed_notification(project, scan, session)
@@ -459,6 +514,21 @@ def run_scan(self, scan_id: str, scan_type: str):
             f"Scan {scan_id} completed: {findings_saved} findings "
             f"({severity_counts})"
         )
+        
+        # Post success commit status & PR comment
+        if webhook_metadata and project.provider == "github":
+            commit_sha = webhook_metadata.get("commit_sha")
+            if commit_sha:
+                # If we have findings, we might mark it as failure instead of success depending on policy.
+                # For now, mark as success (scan completed successfully).
+                state = "failure" if findings_saved > 0 else "success"
+                desc = f"Found {findings_saved} issues" if findings_saved > 0 else "No issues found"
+                post_github_commit_status(project.repo_url, commit_sha, state, desc)
+                
+            pr_number = webhook_metadata.get("pr_number")
+            if pr_number:
+                comment = f"### 🛡️ SCA Platform Scan Results\n\n**Total Findings:** {findings_saved}\n- 🔴 Critical: {severity_counts.get('critical', 0)}\n- 🟠 High: {severity_counts.get('high', 0)}\n- 🟡 Medium: {severity_counts.get('medium', 0)}\n- 🔵 Low: {severity_counts.get('low', 0)}"
+                post_github_pr_comment(project.repo_url, pr_number, comment)
 
         return {
             "status": "completed",
@@ -488,6 +558,12 @@ def run_scan(self, scan_id: str, scan_type: str):
                 # Send Telegram notification (Failure)
                 project_in_scope = project if 'project' in locals() and project else None
                 _send_scan_failed_notification(project_in_scope, scan, str(e))
+                
+                # Post failure commit status
+                if webhook_metadata and project_in_scope and project_in_scope.provider == "github":
+                    commit_sha = webhook_metadata.get("commit_sha")
+                    if commit_sha:
+                        post_github_commit_status(project_in_scope.repo_url, commit_sha, "error", "Scan failed to execute")
         except Exception:
             session.rollback()
 
@@ -558,33 +634,16 @@ def run_local_scan(self, scan_id: str, scan_type: str, source_path: str):
             finding_dicts = prev_finding_dicts
         else:
             if scan_type == "combined":
-                finding_dicts = []
-                # Step 1: Secret Scan
-                _update_progress(session, scan, 30, "Running secret detection...")
-                try:
-                    finding_dicts.extend(ScanService.run_secret_scan(source_path))
-                except Exception as e:
-                    logger.error(f"Secret scan failed: {e}")
-
-                # Step 2: Vulnerability Scan
-                _update_progress(session, scan, 50, "Running dependency vulnerability scan...")
-                try:
-                    finding_dicts.extend(ScanService.run_vulnerability_scan(source_path))
-                except Exception as e:
-                    logger.error(f"Vulnerability scan failed: {e}")
-
-                # Step 3: SAST Scan
-                _update_progress(session, scan, 70, "Running SAST analysis...")
-                try:
-                    finding_dicts.extend(ScanService.run_sast_scan(source_path))
-                except Exception as e:
-                    logger.error(f"SAST scan failed: {e}")
+                finding_dicts = _execute_combined_scan(session, scan, source_path, project)
             else:
                 _update_progress(session, scan, 30, f"Running {scan_type} analysis on local code...")
                 logger.info(f"Executing {scan_type} local scan on {source_path}")
                 finding_dicts = ScanService.execute_scan(scan_type, source_path)
 
         _update_progress(session, scan, 70, "Processing findings...")
+
+        # Apply baseline management
+        _apply_baseline_management(session, scan.project_id, finding_dicts)
 
         findings_saved = 0
         severity_counts = {}
@@ -609,6 +668,7 @@ def run_local_scan(self, scan_id: str, scan_type: str, source_path: str):
                 detector_type=fd.get("detector_type"),
                 verified=fd.get("verified"),
                 metadata_json=fd.get("metadata_json"),
+                status=fd.get("status", "open"),
             )
             session.add(finding)
             added_findings.append(finding)
@@ -635,6 +695,9 @@ def run_local_scan(self, scan_id: str, scan_type: str, source_path: str):
             **severity_counts,
         }
         session.commit()
+        
+        # Invalidate API cache so new findings immediately appear on dashboard and findings page
+        clear_all_api_caches_sync()
 
         # Send Telegram notification (Success)
         _send_scan_completed_notification(project, scan, session)
@@ -746,33 +809,16 @@ def run_local_folder_scan(self, scan_id: str, scan_type: str, source_path: str):
             finding_dicts = prev_finding_dicts
         else:
             if scan_type == "combined":
-                finding_dicts = []
-                # Step 1: Secret Scan
-                _update_progress(session, scan, 30, "Running secret detection...")
-                try:
-                    finding_dicts.extend(ScanService.run_secret_scan(source_path))
-                except Exception as e:
-                    logger.error(f"Secret scan failed: {e}")
-
-                # Step 2: Vulnerability Scan
-                _update_progress(session, scan, 50, "Running dependency vulnerability scan...")
-                try:
-                    finding_dicts.extend(ScanService.run_vulnerability_scan(source_path))
-                except Exception as e:
-                    logger.error(f"Vulnerability scan failed: {e}")
-
-                # Step 3: SAST Scan
-                _update_progress(session, scan, 70, "Running SAST analysis...")
-                try:
-                    finding_dicts.extend(ScanService.run_sast_scan(source_path))
-                except Exception as e:
-                    logger.error(f"SAST scan failed: {e}")
+                finding_dicts = _execute_combined_scan(session, scan, source_path, project)
             else:
                 _update_progress(session, scan, 30, f"Running {scan_type} analysis on folder...")
                 logger.info(f"Executing {scan_type} folder scan on {source_path}")
                 finding_dicts = ScanService.execute_scan(scan_type, source_path)
 
         _update_progress(session, scan, 70, "Processing findings...")
+
+        # Apply baseline management
+        _apply_baseline_management(session, scan.project_id, finding_dicts)
 
         findings_saved = 0
         severity_counts = {}
@@ -797,6 +843,7 @@ def run_local_folder_scan(self, scan_id: str, scan_type: str, source_path: str):
                 detector_type=fd.get("detector_type"),
                 verified=fd.get("verified"),
                 metadata_json=fd.get("metadata_json"),
+                status=fd.get("status", "open"),
             )
             session.add(finding)
             added_findings.append(finding)
@@ -823,6 +870,9 @@ def run_local_folder_scan(self, scan_id: str, scan_type: str, source_path: str):
             **severity_counts,
         }
         session.commit()
+        
+        # Invalidate API cache so new findings immediately appear on dashboard and findings page
+        clear_all_api_caches_sync()
 
         # Send Telegram notification (Success)
         _send_scan_completed_notification(project, scan, session)

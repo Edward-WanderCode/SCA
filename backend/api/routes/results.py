@@ -6,8 +6,10 @@ from sqlalchemy import select, func, desc, or_, case
 from db.session import get_db
 from models.finding import Finding, Severity
 from models.user import User
-from schemas.finding import FindingResponse, FindingListResponse
+from schemas.finding import FindingResponse, FindingListResponse, FindingUpdateStatus
 from api.deps import get_current_active_user
+import json
+from core.cache import redis_client, clear_all_api_caches
 
 router = APIRouter()
 
@@ -23,45 +25,39 @@ async def list_findings(
     rule_id: str | None = None,
     cve_id: str | None = None,
     verified: bool | None = None,
+    status: str | None = None,
     search: str | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
     """List findings with filters and pagination."""
+    cache_key = f"findings:list:{page}:{page_size}:{scan_id or ''}:{project_id or ''}:{severity or ''}:{file_path or ''}:{rule_id or ''}:{cve_id or ''}:{verified or ''}:{status or ''}:{search or ''}"
+    cached = await redis_client.get(cache_key)
+    if cached:
+        return json.loads(cached)
+
     query = select(Finding)
 
     if scan_id:
         query = query.where(Finding.scan_id == scan_id)
     else:
         from models.scan import Scan, ScanStatus
-        # Subquery to get the latest completed_at timestamp for each (project_id, scan_type)
-        subq = (
+        # Subquery using ROW_NUMBER() to get the latest completed scan for each (project_id, scan_type)
+        rn_subq = (
             select(
-                Scan.project_id,
-                Scan.scan_type,
-                func.max(Scan.completed_at).label("max_completed_at")
-            )
-            .where(Scan.status == ScanStatus.COMPLETED)
-            .group_by(Scan.project_id, Scan.scan_type)
-        )
-        if project_id:
-            subq = subq.where(Scan.project_id == project_id)
-        subq_s = subq.subquery()
-        
-        # Query to retrieve the corresponding latest completed scan IDs
-        latest_scan_ids_q = (
-            select(Scan.id)
-            .join(
-                subq_s,
-                (Scan.project_id == subq_s.c.project_id) &
-                (Scan.scan_type == subq_s.c.scan_type) &
-                (Scan.completed_at == subq_s.c.max_completed_at)
+                Scan.id.label("scan_id"),
+                func.row_number().over(
+                    partition_by=[Scan.project_id, Scan.scan_type],
+                    order_by=[desc(Scan.completed_at), desc(Scan.created_at)]
+                ).label("rn")
             )
             .where(Scan.status == ScanStatus.COMPLETED)
         )
         if project_id:
-            latest_scan_ids_q = latest_scan_ids_q.where(Scan.project_id == project_id)
+            rn_subq = rn_subq.where(Scan.project_id == project_id)
         
+        rn_subq_s = rn_subq.subquery()
+        latest_scan_ids_q = select(rn_subq_s.c.scan_id).where(rn_subq_s.c.rn == 1)
         query = query.where(Finding.scan_id.in_(latest_scan_ids_q))
     if severity:
         query = query.where(Finding.severity == severity)
@@ -73,6 +69,8 @@ async def list_findings(
         query = query.where(Finding.cve_id == cve_id)
     if verified is not None:
         query = query.where(Finding.verified == verified)
+    if status:
+        query = query.where(Finding.status == status)
     if search:
         query = query.where(
             or_(
@@ -119,14 +117,19 @@ async def list_findings(
             detector_type=f.detector_type,
             verified=f.verified,
             metadata_json=f.metadata_json,
+            status=f.status,
             created_at=f.created_at,
         )
         for f in findings
     ]
 
-    return FindingListResponse(
+    result_response = FindingListResponse(
         items=items, total=total, page=page, page_size=page_size
     )
+    
+    # Cache for 5 minutes
+    await redis_client.setex(cache_key, 300, result_response.model_dump_json())
+    return result_response
 
 
 @router.get("/export")
@@ -140,52 +143,23 @@ async def export_findings_report(
     """Export active findings report as Markdown, HTML, or JSON."""
     query = select(Finding)
 
+    from models.scan import Scan, ScanStatus
+    rn_subq = (
+        select(
+            Scan.id.label("scan_id"),
+            func.row_number().over(
+                partition_by=[Scan.project_id, Scan.scan_type],
+                order_by=[desc(Scan.completed_at), desc(Scan.created_at)]
+            ).label("rn")
+        )
+        .where(Scan.status == ScanStatus.COMPLETED)
+    )
     if project_id:
-        from models.scan import Scan, ScanStatus
-        subq = (
-            select(
-                Scan.project_id,
-                Scan.scan_type,
-                func.max(Scan.completed_at).label("max_completed_at")
-            )
-            .where(Scan.status == ScanStatus.COMPLETED, Scan.project_id == project_id)
-            .group_by(Scan.project_id, Scan.scan_type)
-            .subquery()
-        )
-        latest_scan_ids_q = (
-            select(Scan.id)
-            .join(
-                subq,
-                (Scan.project_id == subq.c.project_id) &
-                (Scan.scan_type == subq.c.scan_type) &
-                (Scan.completed_at == subq.c.max_completed_at)
-            )
-            .where(Scan.status == ScanStatus.COMPLETED, Scan.project_id == project_id)
-        )
-        query = query.where(Finding.scan_id.in_(latest_scan_ids_q))
-    else:
-        from models.scan import Scan, ScanStatus
-        subq = (
-            select(
-                Scan.project_id,
-                Scan.scan_type,
-                func.max(Scan.completed_at).label("max_completed_at")
-            )
-            .where(Scan.status == ScanStatus.COMPLETED)
-            .group_by(Scan.project_id, Scan.scan_type)
-            .subquery()
-        )
-        latest_scan_ids_q = (
-            select(Scan.id)
-            .join(
-                subq,
-                (Scan.project_id == subq.c.project_id) &
-                (Scan.scan_type == subq.c.scan_type) &
-                (Scan.completed_at == subq.c.max_completed_at)
-            )
-            .where(Scan.status == ScanStatus.COMPLETED)
-        )
-        query = query.where(Finding.scan_id.in_(latest_scan_ids_q))
+        rn_subq = rn_subq.where(Scan.project_id == project_id)
+    
+    rn_subq_s = rn_subq.subquery()
+    latest_scan_ids_q = select(rn_subq_s.c.scan_id).where(rn_subq_s.c.rn == 1)
+    query = query.where(Finding.scan_id.in_(latest_scan_ids_q))
 
     if severity:
         query = query.where(Finding.severity == severity)
@@ -736,5 +710,53 @@ async def get_finding(
         detector_type=finding.detector_type,
         verified=finding.verified,
         metadata_json=finding.metadata_json,
+        status=finding.status,
+        created_at=finding.created_at,
+    )
+
+@router.put("/{finding_id}/status", response_model=FindingResponse)
+async def update_finding_status(
+    finding_id: str,
+    status_update: FindingUpdateStatus,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Update finding status (open, ignored, resolved)."""
+    if status_update.status not in ["open", "ignored", "resolved"]:
+        raise HTTPException(status_code=400, detail="Invalid status. Must be 'open', 'ignored', or 'resolved'.")
+
+    result = await db.execute(select(Finding).where(Finding.id == finding_id))
+    finding = result.scalar_one_or_none()
+
+    if not finding:
+        raise HTTPException(status_code=404, detail="Finding not found")
+
+    finding.status = status_update.status
+    await db.commit()
+    await db.refresh(finding)
+    
+    # Invalidate cache for findings and dashboard since status changed
+    await clear_all_api_caches()
+
+    return FindingResponse(
+        id=finding.id,
+        scan_id=finding.scan_id,
+        severity=finding.severity,
+        title=finding.title,
+        description=finding.description,
+        file_path=finding.file_path,
+        line_start=finding.line_start,
+        line_end=finding.line_end,
+        code_snippet=finding.code_snippet,
+        rule_id=finding.rule_id,
+        cve_id=finding.cve_id,
+        cvss_score=finding.cvss_score,
+        package_name=finding.package_name,
+        package_version=finding.package_version,
+        fixed_version=finding.fixed_version,
+        detector_type=finding.detector_type,
+        verified=finding.verified,
+        metadata_json=finding.metadata_json,
+        status=finding.status,
         created_at=finding.created_at,
     )

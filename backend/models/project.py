@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import datetime
-from sqlalchemy import String, Text, DateTime, Integer, func
+from sqlalchemy import String, Text, DateTime, JSON, Integer, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 from db.base import Base
@@ -23,6 +23,10 @@ class Project(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     branch: Mapped[str] = mapped_column(String(255), default="main")
     language: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    webhook_secret: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    provider: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    cron_schedule: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    enabled_scanners: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     telegram_topic_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

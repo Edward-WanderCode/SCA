@@ -39,60 +39,8 @@ def upgrade() -> None:
     op.create_index(op.f('ix_users_email'), 'users', ['email'], unique=True)
     op.create_index(op.f('ix_users_username'), 'users', ['username'], unique=True)
 
-    # === Performance Indexes for existing tables ===
-    # These use IF NOT EXISTS pattern via try/except to be safe
-    # against tables that may already have these indexes
-
-    # Projects indexes
-    try:
-        op.create_index('ix_projects_name', 'projects', ['name'], unique=False, if_not_exists=True)
-    except Exception:
-        pass
-
-    # Scans indexes
-    try:
-        op.create_index('ix_scans_status', 'scans', ['status'], unique=False, if_not_exists=True)
-    except Exception:
-        pass
-    try:
-        op.create_index('ix_scans_project_id', 'scans', ['project_id'], unique=False, if_not_exists=True)
-    except Exception:
-        pass
-    try:
-        op.create_index('ix_scans_project_id_created_at', 'scans', ['project_id', 'created_at'], unique=False, if_not_exists=True)
-    except Exception:
-        pass
-
-    # Findings indexes
-    try:
-        op.create_index('ix_findings_severity', 'findings', ['severity'], unique=False, if_not_exists=True)
-    except Exception:
-        pass
-    try:
-        op.create_index('ix_findings_scan_id', 'findings', ['scan_id'], unique=False, if_not_exists=True)
-    except Exception:
-        pass
-    try:
-        op.create_index('ix_findings_rule_id', 'findings', ['rule_id'], unique=False, if_not_exists=True)
-    except Exception:
-        pass
-    try:
-        op.create_index('ix_findings_cve_id', 'findings', ['cve_id'], unique=False, if_not_exists=True)
-    except Exception:
-        pass
-
 
 def downgrade() -> None:
-    # Drop performance indexes
-    op.drop_index('ix_findings_cve_id', table_name='findings', if_exists=True)
-    op.drop_index('ix_findings_rule_id', table_name='findings', if_exists=True)
-    op.drop_index('ix_findings_scan_id', table_name='findings', if_exists=True)
-    op.drop_index('ix_findings_severity', table_name='findings', if_exists=True)
-    op.drop_index('ix_scans_project_id_created_at', table_name='scans', if_exists=True)
-    op.drop_index('ix_scans_project_id', table_name='scans', if_exists=True)
-    op.drop_index('ix_scans_status', table_name='scans', if_exists=True)
-    op.drop_index('ix_projects_name', table_name='projects', if_exists=True)
-
     # Drop users table
     op.drop_index(op.f('ix_users_username'), table_name='users')
     op.drop_index(op.f('ix_users_email'), table_name='users')

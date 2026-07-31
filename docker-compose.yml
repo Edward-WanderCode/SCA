@@ -41,7 +41,7 @@ services:
       WORKSPACE_VOLUME_NAME: sca_scan_workspace
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
-      TELEGRAM_BOT_COMMAND_THREAD_ID: ${TELEGRAM_BOT_COMMAND_THREAD_ID}
+      TELEGRAM_BOT_COMMAND_THREAD_ID: ${TELEGRAM_BOT_COMMAND_THREAD_ID:-306}
       PYTHONUNBUFFERED: "1"
 
     ports:
@@ -55,6 +55,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - scan_workspace:/app/workspace
       - ./..:/app/host_code
+      - ./backend:/app
     restart: unless-stopped
 
   # === Celery Worker ===
@@ -72,7 +73,7 @@ services:
       WORKSPACE_VOLUME_NAME: sca_scan_workspace
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
-      TELEGRAM_BOT_COMMAND_THREAD_ID: ${TELEGRAM_BOT_COMMAND_THREAD_ID}
+      TELEGRAM_BOT_COMMAND_THREAD_ID: ${TELEGRAM_BOT_COMMAND_THREAD_ID:-306}
       PYTHONUNBUFFERED: "1"
 
     depends_on:
@@ -84,6 +85,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - scan_workspace:/app/workspace
       - ./..:/app/host_code
+      - ./backend:/app
     restart: unless-stopped
 
   # === Frontend ===

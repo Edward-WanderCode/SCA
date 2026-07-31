@@ -12,7 +12,9 @@ import type {
   ScanType,
   ScanStatus,
   Severity,
+  SystemSettings,
 } from '@/types';
+
 import { getAccessToken, refreshTokenApi, clearTokens } from '@/lib/auth';
 
 const api = axios.create({
@@ -121,6 +123,16 @@ export const projectsApi = {
     const { data } = await api.post<Scan[]>(`/projects/${id}/rescan`);
     return data;
   },
+  
+  getWebhookConfig: async (id: string) => {
+    const { data } = await api.get<{ webhook_url: string; webhook_secret: string; provider: string | null }>(`/projects/${id}/webhook-config`);
+    return data;
+  },
+  
+  generateWebhookConfig: async (id: string, provider: string) => {
+    const { data } = await api.post<{ webhook_url: string; webhook_secret: string; provider: string | null }>(`/projects/${id}/webhook-config`, { provider });
+    return data;
+  },
 };
 
 // === Scans ===
@@ -146,10 +158,13 @@ export const scansApi = {
     return data;
   },
 
-  localScan: async (file: File, scanTypes: ScanType[]) => {
+  localScan: async (file: File, scanTypes: ScanType[], projectId?: string) => {
     const formData = new FormData();
     formData.append('file', file, file.name);
     formData.append('scan_types', scanTypes.length > 0 ? scanTypes.join(',') : 'combined');
+    if (projectId) {
+      formData.append('project_id', projectId);
+    }
     const { data } = await api.post<Scan[]>('/scans/local', formData, {
       timeout: 20 * 60 * 1000,
       headers: {
@@ -159,13 +174,16 @@ export const scansApi = {
     return data;
   },
 
-  uploadFolder: async (files: File[], scanTypes: ScanType[]) => {
+  uploadFolder: async (files: File[], scanTypes: ScanType[], projectId?: string) => {
     const formData = new FormData();
     files.forEach((file) => {
       const path = (file as any).webkitRelativePath || file.name;
       formData.append('files', file, path);
     });
     formData.append('scan_types', scanTypes.length > 0 ? scanTypes.join(',') : 'combined');
+    if (projectId) {
+      formData.append('project_id', projectId);
+    }
     const { data } = await api.post<Scan[]>('/scans/local-folder', formData, {
       timeout: 20 * 60 * 1000,
       headers: {
@@ -175,10 +193,11 @@ export const scansApi = {
     return data;
   },
 
-  folderScan: async (folderPath: string, scanTypes: ScanType[]) => {
+  folderScan: async (folderPath: string, scanTypes: ScanType[], projectId?: string) => {
     const { data } = await api.post<Scan[]>('/scans/folder', {
       folder_path: folderPath,
       scan_types: scanTypes,
+      project_id: projectId,
     });
     return data;
   },
@@ -207,6 +226,7 @@ export const findingsApi = {
     scan_id?: string;
     project_id?: string;
     severity?: Severity;
+    status?: string;
     file_path?: string;
     rule_id?: string;
     cve_id?: string;
@@ -219,6 +239,11 @@ export const findingsApi = {
 
   get: async (id: string) => {
     const { data } = await api.get<Finding>(`/findings/${id}`);
+    return data;
+  },
+
+  updateStatus: async (id: string, status: string) => {
+    const { data } = await api.put<Finding>(`/findings/${id}/status`, { status });
     return data;
   },
 };
@@ -241,6 +266,24 @@ export const dashboardApi = {
     const { data } = await api.get<RecentActivity>('/dashboard/recent', {
       params: { limit },
     });
+    return data;
+  },
+};
+
+// === Settings ===
+export const settingsApi = {
+  get: async () => {
+    const { data } = await api.get<SystemSettings>('/settings');
+    return data;
+  },
+
+  update: async (settings: Partial<SystemSettings>) => {
+    const { data } = await api.put<SystemSettings>('/settings', settings);
+    return data;
+  },
+
+  testTelegram: async (params?: { telegram_bot_token?: string; telegram_chat_id?: string; telegram_bot_command_thread_id?: number }) => {
+    const { data } = await api.post<{ status: string; message: string }>('/settings/test-telegram', params);
     return data;
   },
 };

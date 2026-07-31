@@ -28,7 +28,7 @@ httpx==0.28.1
 aiofiles==24.1.0
 
 # Git operations
-gitpython==3.1.44
+gitpython==3.1.54
 
 # Utilities
 python-dotenv==1.0.1
@@ -47,5 +47,5 @@ pytest==7.4.3
 pytest-asyncio==0.21.1
 pytest-cov==4.1.0
 faker==22.0.0
-PyJWT==2.10.1
+PyJWT==2.13.0
 croniter==5.0.1

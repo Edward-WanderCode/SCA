@@ -36,6 +36,7 @@ services:
       CELERY_RESULT_BACKEND: redis://redis:6379/1
       SCAN_WORKSPACE_DIR: /app/workspace
       DEBUG: "true"
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-this-to-a-secure-random-string-at-least-32-chars}
       HOST_CODE_DIR_ON_HOST: d:/Code
       WORKSPACE_VOLUME_NAME: sca_scan_workspace
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
@@ -66,6 +67,7 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
       SCAN_WORKSPACE_DIR: /app/workspace
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-this-to-a-secure-random-string-at-least-32-chars}
       HOST_CODE_DIR_ON_HOST: d:/Code
       WORKSPACE_VOLUME_NAME: sca_scan_workspace
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}

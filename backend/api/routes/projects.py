@@ -6,6 +6,7 @@ from sqlalchemy import select, func, desc
 from db.session import get_db
 from models.project import Project
 from models.scan import Scan
+from models.user import User
 from schemas.project import (
     ProjectCreate,
     ProjectUpdate,
@@ -13,6 +14,7 @@ from schemas.project import (
     ProjectListResponse,
 )
 from schemas.scan import ScanResponse
+from api.deps import get_current_active_user, require_admin
 
 
 router = APIRouter()
@@ -70,6 +72,7 @@ async def list_projects(
     page_size: int = Query(20, ge=1, le=100),
     search: str | None = None,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
     """List all projects with pagination."""
     query = select(Project)
@@ -129,6 +132,7 @@ async def list_projects(
 async def create_project(
     data: ProjectCreate,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
     """Create a new project."""
     project = Project(
@@ -160,6 +164,7 @@ async def create_project(
 async def get_project(
     project_id: str,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
     """Get a single project by ID."""
     result = await db.execute(select(Project).where(Project.id == project_id))
@@ -202,6 +207,7 @@ async def update_project(
     project_id: str,
     data: ProjectUpdate,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
     """Update a project."""
     result = await db.execute(select(Project).where(Project.id == project_id))
@@ -231,6 +237,7 @@ async def update_project(
 async def delete_project(
     project_id: str,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
 ):
     """Delete a project and all its scans."""
     result = await db.execute(select(Project).where(Project.id == project_id))
@@ -270,6 +277,7 @@ async def delete_project(
 async def rescan_project(
     project_id: str,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
     """Trigger a rescan for all scan types previously run on this project."""
     result = await db.execute(select(Project).where(Project.id == project_id))

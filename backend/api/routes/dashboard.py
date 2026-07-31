@@ -8,6 +8,8 @@ from db.session import get_db
 from models.scan import Scan, ScanStatus, ScanType
 from models.finding import Finding, Severity
 from models.project import Project
+from models.user import User
+from api.deps import get_current_active_user
 
 router = APIRouter()
 
@@ -15,6 +17,7 @@ router = APIRouter()
 @router.get("/stats")
 async def get_dashboard_stats(
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
     """Get aggregate dashboard statistics."""
     # Total projects
@@ -88,6 +91,7 @@ async def get_dashboard_stats(
 async def get_trends(
     days: int = Query(30, ge=7, le=90),
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
     """Get finding trends over time."""
     start_date = datetime.now(timezone.utc) - timedelta(days=days)
@@ -149,6 +153,7 @@ async def get_trends(
 async def get_recent_activity(
     limit: int = Query(10, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
     """Get recent scans and critical findings."""
     # Recent scans

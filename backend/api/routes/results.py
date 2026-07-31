@@ -5,7 +5,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc, or_, case
 from db.session import get_db
 from models.finding import Finding, Severity
+from models.user import User
 from schemas.finding import FindingResponse, FindingListResponse
+from api.deps import get_current_active_user
 
 router = APIRouter()
 
@@ -23,6 +25,7 @@ async def list_findings(
     verified: bool | None = None,
     search: str | None = None,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
     """List findings with filters and pagination."""
     query = select(Finding)
@@ -132,6 +135,7 @@ async def export_findings_report(
     severity: Severity | None = None,
     format: str = Query("markdown", enum=["markdown", "html", "json"]),
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
     """Export active findings report as Markdown, HTML, or JSON."""
     query = select(Finding)
@@ -704,6 +708,7 @@ async def export_findings_report(
 async def get_finding(
     finding_id: str,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
     """Get a single finding by ID."""
     result = await db.execute(select(Finding).where(Finding.id == finding_id))

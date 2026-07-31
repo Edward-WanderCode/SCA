@@ -3,6 +3,7 @@
 import { Search, Bell, RefreshCw, Menu } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 import { useState, useEffect } from 'react';
+import UserProfile from '@/components/UserProfile';
 
 const pageTitles: Record<string, string> = {
   '/': 'Dashboard',
@@ -127,26 +128,7 @@ export default function Header({ onMenuClick, isMobile }: HeaderProps) {
         </button>
 
         {/* User Avatar */}
-        {!isMobile && (
-          <div
-            style={{
-              width: 36,
-              height: 36,
-              borderRadius: '50%',
-              background: 'var(--gradient-primary)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: '0.875rem',
-              fontWeight: 600,
-              cursor: 'pointer',
-              marginLeft: 4,
-              flexShrink: 0,
-            }}
-          >
-            A
-          </div>
-        )}
+        {!isMobile && <UserProfile />}
       </div>
     </header>
   );

@@ -3,6 +3,37 @@
 export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'info';
 export type ScanType = 'sast' | 'vulnerability' | 'secret' | 'combined';
 export type ScanStatus = 'pending' | 'running' | 'completed' | 'failed';
+export type UserRole = 'admin' | 'analyst' | 'viewer';
+
+export interface User {
+  id: string;
+  email: string;
+  username: string;
+  full_name: string | null;
+  is_active: boolean;
+  role: UserRole;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AuthTokens {
+  access_token: string;
+  refresh_token: string;
+  token_type: string;
+}
+
+export interface LoginCredentials {
+  username: string;
+  password: string;
+}
+
+export interface RegisterData {
+  email: string;
+  username: string;
+  password: string;
+  full_name?: string;
+}
+
 
 export interface Project {
   id: string;

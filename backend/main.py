@@ -39,18 +39,35 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS Middleware
+# === Middleware Stack (order matters: last added = first executed) ===
+
+# Security Headers Middleware
+from middleware import SecurityHeadersMiddleware
+app.add_middleware(SecurityHeadersMiddleware)
+
+# CORS Middleware — hardened with explicit methods and headers
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept"],
+    max_age=3600,
 )
+
+# Rate Limiting
+from core.rate_limit import register_rate_limiter
+register_rate_limiter(app)
+
+# Exception Handlers
+from api.error_handlers import register_exception_handlers
+register_exception_handlers(app)
 
 # Register routers
 from api.routes import projects, scans, results, dashboard  # noqa: E402
+from api.routes import auth  # noqa: E402
 
+app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(projects.router, prefix="/api/projects", tags=["Projects"])
 app.include_router(scans.router, prefix="/api/scans", tags=["Scans"])
 app.include_router(results.router, prefix="/api/findings", tags=["Findings"])
@@ -59,9 +76,10 @@ app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"]
 
 @app.get("/api/health", tags=["Health"])
 async def health_check():
-    """Health check endpoint."""
+    """Health check endpoint (unauthenticated)."""
     return {
         "status": "healthy",
         "app": settings.APP_NAME,
         "version": settings.APP_VERSION,
     }
+

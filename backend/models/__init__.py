@@ -3,6 +3,7 @@
 from models.project import Project
 from models.scan import Scan, ScanType, ScanStatus
 from models.finding import Finding, Severity
+from models.user import User, UserRole
 
 __all__ = [
     "Project",
@@ -11,4 +12,7 @@ __all__ = [
     "ScanStatus",
     "Finding",
     "Severity",
+    "User",
+    "UserRole",
 ]
+

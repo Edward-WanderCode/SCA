@@ -2,6 +2,9 @@
 
 from pydantic_settings import BaseSettings
 from typing import Optional
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -9,7 +12,7 @@ class Settings(BaseSettings):
 
     # Application
     APP_NAME: str = "SCA Platform"
-    APP_VERSION: str = "1.0.0"
+    APP_VERSION: str = "2.0.0"
     DEBUG: bool = True
     API_PREFIX: str = "/api"
 
@@ -23,6 +26,15 @@ class Settings(BaseSettings):
     # Celery
     CELERY_BROKER_URL: str = "redis://localhost:6379/0"
     CELERY_RESULT_BACKEND: str = "redis://localhost:6379/1"
+
+    # JWT Authentication
+    JWT_SECRET_KEY: str = "change-this-to-a-secure-random-string-at-least-32-chars"
+    JWT_ALGORITHM: str = "HS256"
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
+    JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+
+    # Password Policy
+    PASSWORD_MIN_LENGTH: int = 8
 
     # Scanner Docker Images
     OPENGREP_IMAGE: str = "opengrep/opengrep:latest"
@@ -58,3 +70,14 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+# Warn about insecure JWT secret
+if settings.JWT_SECRET_KEY == "change-this-to-a-secure-random-string-at-least-32-chars":
+    logger.warning(
+        "⚠️  Using default JWT_SECRET_KEY! Set a strong secret in production via environment variable."
+    )
+elif len(settings.JWT_SECRET_KEY) < 32:
+    logger.warning(
+        "⚠️  JWT_SECRET_KEY is shorter than 32 characters. Use a longer key for security."
+    )
+

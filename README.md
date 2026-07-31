@@ -2,6 +2,9 @@
 
 Nền tảng phân tích mã nguồn tĩnh toàn diện, tự triển khai với dashboard hiện đại.
 
+> **⚠️ UPGRADE IN PROGRESS:** See [UPGRADE_PLAN.md](UPGRADE_PLAN.md) for version 2.0 roadmap  
+> **📚 Quick Start:** See [GETTING_STARTED.md](GETTING_STARTED.md) for development setup
+
 ## ✨ Tính năng
 
 - ⚡ **Combined Scanning (Quét kết hợp)** - Luôn tự động kết hợp toàn bộ các bộ máy quét (SAST với OpenGrep, Vulnerability với Trivy, và Secrets với TruffleHog) vào trong một phiên quét duy nhất.

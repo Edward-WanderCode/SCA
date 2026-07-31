@@ -12,7 +12,9 @@ from db.session import get_db
 from models.project import Project
 from models.scan import Scan, ScanType, ScanStatus
 from models.finding import Finding, Severity
+from models.user import User
 from schemas.scan import ScanCreate, ScanResponse, ScanListResponse, ScanSummary, FolderScanCreate
+from api.deps import get_current_active_user, require_analyst
 from config import settings
 
 router = APIRouter()
@@ -74,6 +76,7 @@ async def list_scans(
     scan_type: ScanType | None = None,
     status: ScanStatus | None = None,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
     """List scans with filters and pagination."""
     query = select(Scan)
@@ -104,6 +107,7 @@ async def list_scans(
 async def create_scan(
     data: ScanCreate,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_analyst),
 ):
     """Trigger new scan(s) for a project."""
     result = await db.execute(
@@ -168,6 +172,7 @@ async def create_local_scan(
     file: UploadFile = File(...),
     scan_types: str = Form(...),
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_analyst),
 ):
     """Scan a local code directory uploaded as a ZIP or RAR file."""
     if not file.filename:
@@ -339,6 +344,7 @@ async def create_local_folder_scan(
     files: list[UploadFile] = File(...),
     scan_types: str = Form(...),
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_analyst),
 ):
     """Scan a local folder uploaded as a directory tree from the browser."""
     if not files:
@@ -447,6 +453,7 @@ async def create_local_folder_scan(
 async def create_folder_scan(
     data: FolderScanCreate,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_analyst),
 ):
     """Scan a local folder path directly from the host filesystem."""
     path_str = data.folder_path.strip()
@@ -576,6 +583,7 @@ async def browse_directory(path: str = ""):
 async def get_scan(
     scan_id: str,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
     """Get a single scan by ID with detailed info."""
     result = await db.execute(select(Scan).where(Scan.id == scan_id))
@@ -589,6 +597,7 @@ async def get_scan(
 async def delete_scan(
     scan_id: str,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_analyst),
 ):
     """Delete a scan and its findings."""
     result = await db.execute(select(Scan).where(Scan.id == scan_id))

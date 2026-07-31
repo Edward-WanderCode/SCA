@@ -28,13 +28,44 @@ def escape_html(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+def get_telegram_credentials() -> tuple[str | None, str | None, int | None]:
+    """Get Telegram credentials and default topic thread ID, with dynamic database lookup fallback for Celery workers."""
+    token = settings.TELEGRAM_BOT_TOKEN
+    chat_id = settings.TELEGRAM_CHAT_ID
+    thread_id = getattr(settings, 'TELEGRAM_BOT_COMMAND_THREAD_ID', None)
+
+    try:
+        from sqlalchemy import create_engine, text
+        sync_url = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
+        sync_engine = create_engine(sync_url, pool_pre_ping=True)
+        with sync_engine.connect() as conn:
+            result = conn.execute(text("SELECT key, value FROM system_settings"))
+            for row in result:
+                k, v = row[0], row[1]
+                if k == "TELEGRAM_BOT_TOKEN" and v and v.strip():
+                    token = v.strip()
+                    settings.TELEGRAM_BOT_TOKEN = token
+                elif k == "TELEGRAM_CHAT_ID" and v and v.strip():
+                    chat_id = v.strip()
+                    settings.TELEGRAM_CHAT_ID = chat_id
+                elif k == "TELEGRAM_BOT_COMMAND_THREAD_ID" and v and v.strip():
+                    try:
+                        thread_id = int(v.strip())
+                        settings.TELEGRAM_BOT_COMMAND_THREAD_ID = thread_id
+                    except ValueError:
+                        pass
+    except Exception as e:
+        logger.debug(f"Failed to load Telegram credentials from DB: {e}")
+
+    return token, chat_id, thread_id
+
+
 def create_telegram_topic(project_name: str) -> int | None:
     """
     Create a forum topic on Telegram.
     Returns the message_thread_id if successful, or None.
     """
-    token = settings.TELEGRAM_BOT_TOKEN
-    chat_id = settings.TELEGRAM_CHAT_ID
+    token, chat_id, _ = get_telegram_credentials()
 
     if not token or not chat_id:
         return None
@@ -62,23 +93,16 @@ def send_telegram_notification(
     inline_keyboard: list | None = None
 ) -> int | None:
     """
-    Send a message to the configured Telegram chat.
+    Send a message to the configured Telegram chat/topic.
     Uses HTML parse mode.
-
-    Args:
-        message: The message body (HTML formatted)
-        message_thread_id: Optional thread ID (for forum topics)
-        inline_keyboard: Optional list of inline keyboard buttons
-
-    Returns:
-        int | None: The sent message_id if successful, or None
     """
-    token = settings.TELEGRAM_BOT_TOKEN
-    chat_id = settings.TELEGRAM_CHAT_ID
+    token, chat_id, default_thread_id = get_telegram_credentials()
 
     if not token or not chat_id:
         logger.warning("Telegram notification skipped: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not configured.")
         return None
+
+    target_thread_id = message_thread_id if message_thread_id is not None else default_thread_id
 
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     payload = {
@@ -88,8 +112,8 @@ def send_telegram_notification(
         "disable_web_page_preview": True,
     }
 
-    if message_thread_id is not None:
-        payload["message_thread_id"] = message_thread_id
+    if target_thread_id is not None:
+        payload["message_thread_id"] = target_thread_id
 
     if inline_keyboard:
         payload["reply_markup"] = {"inline_keyboard": inline_keyboard}
@@ -98,10 +122,10 @@ def send_telegram_notification(
         data = _post_telegram_api(url, json=payload)
         if data.get("ok"):
             message_id = data["result"]["message_id"]
-            logger.info(f"Telegram notification sent successfully. Message ID: {message_id}")
+            logger.info(f"Telegram notification sent successfully to topic {target_thread_id}. Message ID: {message_id}")
             return message_id
     except Exception as e:
-        logger.error(f"Failed to send Telegram notification: {e}")
+        logger.error(f"Failed to send Telegram notification to topic {target_thread_id}: {e}")
     return None
 
 
@@ -109,8 +133,7 @@ def pin_telegram_message(message_id: int) -> bool:
     """
     Pin a message in the configured Telegram chat.
     """
-    token = settings.TELEGRAM_BOT_TOKEN
-    chat_id = settings.TELEGRAM_CHAT_ID
+    token, chat_id, _ = get_telegram_credentials()
 
     if not token or not chat_id:
         return False
@@ -134,8 +157,7 @@ def unpin_telegram_message(message_id: int) -> bool:
     """
     Unpin a message in the configured Telegram chat.
     """
-    token = settings.TELEGRAM_BOT_TOKEN
-    chat_id = settings.TELEGRAM_CHAT_ID
+    token, chat_id, _ = get_telegram_credentials()
 
     if not token or not chat_id:
         return False
@@ -158,8 +180,7 @@ def delete_telegram_topic(message_thread_id: int) -> bool:
     """
     Delete a forum topic on Telegram.
     """
-    token = settings.TELEGRAM_BOT_TOKEN
-    chat_id = settings.TELEGRAM_CHAT_ID
+    token, chat_id, _ = get_telegram_credentials()
 
     if not token or not chat_id:
         return False
@@ -184,14 +205,15 @@ def send_telegram_document(
     message_thread_id: int | None = None
 ) -> int | None:
     """
-    Send a document file to the configured Telegram chat.
+    Send a document file to the configured Telegram chat/topic.
     """
-    token = settings.TELEGRAM_BOT_TOKEN
-    chat_id = settings.TELEGRAM_CHAT_ID
+    token, chat_id, default_thread_id = get_telegram_credentials()
 
     if not token or not chat_id:
         logger.warning("Telegram document send skipped: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not configured.")
         return None
+
+    target_thread_id = message_thread_id if message_thread_id is not None else default_thread_id
 
     url = f"https://api.telegram.org/bot{token}/sendDocument"
     data = {
@@ -199,8 +221,8 @@ def send_telegram_document(
         "caption": caption,
         "parse_mode": "HTML"
     }
-    if message_thread_id is not None:
-        data["message_thread_id"] = message_thread_id
+    if target_thread_id is not None:
+        data["message_thread_id"] = target_thread_id
 
     try:
         from pathlib import Path
@@ -214,8 +236,8 @@ def send_telegram_document(
             result = _post_telegram_api(url, data=data, files=files, timeout=30.0)
             if result.get("ok"):
                 message_id = result["result"]["message_id"]
-                logger.info(f"Telegram document sent successfully. Message ID: {message_id}")
+                logger.info(f"Telegram document sent successfully to topic {target_thread_id}. Message ID: {message_id}")
                 return message_id
     except Exception as e:
-        logger.error(f"Failed to send Telegram document: {e}")
+        logger.error(f"Failed to send Telegram document to topic {target_thread_id}: {e}")
     return None

@@ -12,8 +12,10 @@ import type { Severity, Finding } from '@/types';
 export default function FindingsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const filterProjectId = searchParams.get('project_id') || '';
+  const filterScanId = searchParams.get('scan_id') || '';
   const [filterSeverity, setFilterSeverity] = useState<Severity | ''>('');
   const [filterStatus, setFilterStatus] = useState<string>('open');
+  const [filterNewOnly, setFilterNewOnly] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(1);
   const [selectedFinding, setSelectedFinding] = useState<Finding | null>(null);
@@ -55,14 +57,15 @@ export default function FindingsPage() {
 
   const queryClient = useQueryClient();
   const { data, isLoading } = useQuery({
-    queryKey: ['findings', page, filterSeverity, filterStatus, filterProjectId, searchQuery],
+    queryKey: ['findings', page, filterSeverity, filterStatus, filterProjectId, filterScanId, searchQuery],
     queryFn: () =>
       findingsApi.list({
         page,
-        page_size: 20,
+        page_size: 50,
         severity: filterSeverity || undefined,
         status: filterStatus || undefined,
         project_id: filterProjectId || undefined,
+        scan_id: filterScanId || undefined,
         search: searchQuery || undefined,
       }),
   });
@@ -78,8 +81,9 @@ export default function FindingsPage() {
     },
   });
 
-  const findings = data?.items || [];
-  const displayFindings: Finding[] = findings;
+  const rawFindings = data?.items || [];
+  const newCount = rawFindings.filter((f) => f.is_new).length;
+  const displayFindings: Finding[] = filterNewOnly ? rawFindings.filter((f) => f.is_new) : rawFindings;
 
   const setFilterProjectId = (id: string) => {
     const params = new URLSearchParams(searchParams);
@@ -88,6 +92,14 @@ export default function FindingsPage() {
     } else {
       params.delete('project_id');
     }
+    params.delete('scan_id');
+    setSearchParams(params);
+    setPage(1);
+  };
+
+  const clearScanFilter = () => {
+    const params = new URLSearchParams(searchParams);
+    params.delete('scan_id');
     setSearchParams(params);
     setPage(1);
   };
@@ -95,16 +107,45 @@ export default function FindingsPage() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       {/* Header */}
-      <div>
-        <h2 style={{ fontSize: '1.25rem', fontWeight: 700 }}>Security Findings</h2>
-        <p style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginTop: 4 }}>
-          All vulnerabilities, code issues, and exposed secrets
-        </p>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div>
+          <h2 style={{ fontSize: '1.25rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
+            Security Findings
+            {filterScanId && (
+              <span
+                style={{
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  background: 'rgba(99, 102, 241, 0.15)',
+                  color: '#818cf8',
+                  padding: '2px 10px',
+                  borderRadius: 20,
+                  border: '1px solid rgba(99, 102, 241, 0.3)',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                }}
+              >
+                Lượt quét: {filterScanId.substring(0, 8)}...
+                <button
+                  onClick={clearScanFilter}
+                  style={{ background: 'none', border: 'none', color: '#818cf8', cursor: 'pointer', padding: 0, fontWeight: 700 }}
+                  title="Xóa lọc lượt quét"
+                >
+                  ✕
+                </button>
+              </span>
+            )}
+          </h2>
+          <p style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginTop: 4 }}>
+            All vulnerabilities, code issues, and exposed secrets
+          </p>
+        </div>
       </div>
 
       {/* Filters */}
-      <div className="glass-card" style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 12 }}>
-        <div style={{ position: 'relative', flex: 1, maxWidth: 320 }}>
+      <div className="glass-card" style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ position: 'relative', flex: 1, minWidth: 200, maxWidth: 320 }}>
           <Search
             size={16}
             style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }}
@@ -157,6 +198,27 @@ export default function FindingsPage() {
           <option value="ignored">Ignored</option>
           <option value="resolved">Resolved</option>
         </select>
+
+        <button
+          className="btn btn-secondary btn-sm"
+          onClick={() => setFilterNewOnly(!filterNewOnly)}
+          style={{
+            height: 36,
+            padding: '0 12px',
+            fontSize: '0.8125rem',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            background: filterNewOnly ? 'rgba(244, 63, 94, 0.2)' : 'rgba(255, 255, 255, 0.05)',
+            border: filterNewOnly ? '1px solid rgba(244, 63, 94, 0.5)' : '1px solid var(--border-color)',
+            color: filterNewOnly ? '#fb7185' : 'var(--text-secondary)',
+            fontWeight: filterNewOnly ? 700 : 500,
+            borderRadius: 8,
+          }}
+          title="Chỉ hiển thị các lỗ hổng mới phát hiện"
+        >
+          ✨ Lỗi mới ({newCount})
+        </button>
 
         <div style={{ position: 'relative' }}>
           <button
@@ -323,10 +385,31 @@ export default function FindingsPage() {
                     />
 
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
                         <span className={`badge badge-${finding.severity}`} style={{ fontSize: '0.625rem' }}>
                           {sevConf.label}
                         </span>
+                        {finding.is_new && (
+                          <span
+                            className="badge"
+                            style={{
+                              background: 'rgba(244, 63, 94, 0.2)',
+                              color: '#fb7185',
+                              border: '1px solid rgba(244, 63, 94, 0.4)',
+                              fontSize: '0.625rem',
+                              fontWeight: 700,
+                              padding: '2px 6px',
+                              borderRadius: 4,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 3,
+                              boxShadow: '0 0 8px rgba(244, 63, 94, 0.3)',
+                            }}
+                            title="Lỗi mới phát hiện ở lượt quét này"
+                          >
+                            ✨ NEW
+                          </span>
+                        )}
                         {finding.cve_id && (
                           <span style={{ fontSize: '0.6875rem', color: 'var(--accent-cyan)', fontFamily: "'JetBrains Mono', monospace" }}>
                             {finding.cve_id}
@@ -510,6 +593,26 @@ export default function FindingsPage() {
             <h3 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: 8, lineHeight: 1.4 }}>
               {selectedFinding.title}
             </h3>
+
+            {selectedFinding.is_new && (
+              <div
+                style={{
+                  background: 'rgba(244, 63, 94, 0.12)',
+                  border: '1px solid rgba(244, 63, 94, 0.35)',
+                  color: '#fb7185',
+                  padding: '10px 14px',
+                  borderRadius: 8,
+                  fontSize: '0.8125rem',
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  marginBottom: 16,
+                }}
+              >
+                ✨ <span>Lỗi Mới Phát Hiện: Lỗ hổng này mới xuất hiện ở đợt cập nhật mã nguồn này.</span>
+              </div>
+            )}
 
             {selectedFinding.description && (
               <p style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 20 }}>

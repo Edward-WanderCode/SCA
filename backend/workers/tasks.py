@@ -71,9 +71,17 @@ def _send_scan_completed_notification(project, scan, session: Session):
             unmodified = scan.findings_diff.get("unmodified", 0)
             diff_info = f"\n• <b>Thay đổi:</b> +{added} | -{removed} | ={unmodified}"
 
+        filename_str = ""
+        if scan.summary and isinstance(scan.summary, dict) and scan.summary.get("filename"):
+            filename_str = scan.summary.get("filename")
+        elif project.repo_url and "local" in project.repo_url:
+            filename_str = project.repo_url.split("://")[-1]
+
+        file_line = f"\n• <b>Tệp quét (ZIP):</b> <code>{escape_html(filename_str)}</code>" if filename_str else ""
+
         msg = (
             f"✅ <b>[SCA Platform] Quét hoàn thành thành công</b>\n\n"
-            f"• <b>Dự án:</b> <b>{escape_html(project.name)}</b>\n"
+            f"• <b>Dự án:</b> <b>{escape_html(project.name)}</b>{file_line}\n"
             f"• <b>Loại quét:</b> <code>{scan.scan_type.value.upper()}</code>\n"
             f"• <b>Thời gian quét:</b> <code>{scan.duration_seconds}s</code>\n"
             f"• <b>Tổng số lỗi phát hiện:</b> <b>{total_findings}</b>{diff_info}\n"
@@ -321,6 +329,10 @@ def compute_and_save_findings_diff(session: Session, scan: Scan, current_finding
             "removed": 0,
             "unmodified": 0,
         }
+        for f in current_findings:
+            meta = dict(f.metadata_json or {})
+            meta["is_new"] = True
+            f.metadata_json = meta
         session.commit()
         return
         
@@ -348,11 +360,21 @@ def compute_and_save_findings_diff(session: Session, scan: Scan, current_finding
             )
             
     prev_keys = {get_finding_key(f) for f in prev_findings}
-    curr_keys = {get_finding_key(f) for f in current_findings}
     
-    added_count = len(curr_keys - prev_keys)
+    added_count = 0
+    for f in current_findings:
+        key = get_finding_key(f)
+        meta = dict(f.metadata_json or {})
+        if key not in prev_keys:
+            meta["is_new"] = True
+            added_count += 1
+        else:
+            meta["is_new"] = False
+        f.metadata_json = meta
+
+    curr_keys = {get_finding_key(f) for f in current_findings}
     removed_count = len(prev_keys - curr_keys)
-    unmodified_count = len(curr_keys & prev_keys)
+    unmodified_count = len(current_findings) - added_count
     
     scan.findings_diff = {
         "added": added_count,
@@ -614,11 +636,17 @@ def run_local_scan(self, scan_id: str, scan_type: str, source_path: str):
         # Send Telegram notification (Start)
         try:
             from utils.telegram import send_telegram_notification, escape_html
-            repo_info = "• <b>Nguồn:</b> Tải lên file ZIP"
+            filename_str = ""
+            if scan.summary and isinstance(scan.summary, dict) and scan.summary.get("filename"):
+                filename_str = scan.summary.get("filename")
+            elif project.repo_url and "local" in project.repo_url:
+                filename_str = project.repo_url.split("://")[-1]
+
+            file_line = f"\n• <b>Tệp quét (ZIP):</b> <code>{escape_html(filename_str)}</code>" if filename_str else ""
+
             msg = (
                 f"🔔 <b>[SCA Platform] Bắt đầu quét dự án</b>\n\n"
-                f"• <b>Dự án:</b> <b>{escape_html(project.name)}</b>\n"
-                f"{repo_info}\n"
+                f"• <b>Dự án:</b> <b>{escape_html(project.name)}</b>{file_line}\n"
                 f"• <b>Loại quét:</b> <code>{scan.scan_type.value.upper()}</code>\n"
                 f"• <b>ID quét:</b> <code>{scan.id}</code>"
             )
@@ -865,8 +893,10 @@ def run_local_folder_scan(self, scan_id: str, scan_type: str, source_path: str):
         scan.duration_seconds = int((now - scan.started_at).total_seconds())
         scan.progress = 100
         scan.progress_message = "Scan completed"
+        existing_filename = scan.summary.get("filename") if (scan.summary and isinstance(scan.summary, dict)) else None
         scan.summary = {
             "total_findings": findings_saved,
+            **({"filename": existing_filename} if existing_filename else {}),
             **severity_counts,
         }
         session.commit()

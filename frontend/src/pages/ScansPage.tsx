@@ -183,7 +183,7 @@ export default function ScansPage() {
                     key={scan.id}
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
-                    onClick={() => navigate(`/findings?project_id=${scan.project_id}`)}
+                    onClick={() => navigate(`/findings?project_id=${scan.project_id}&scan_id=${scan.id}`)}
                     style={{ cursor: 'pointer' }}
                   >
                     <td>

@@ -275,6 +275,7 @@ async def create_local_scan(
         project_id=project.id,
         scan_type=ScanType.COMBINED,
         status=ScanStatus.PENDING,
+        summary={"filename": file.filename},
     )
     db.add(scan)
     await db.flush()
@@ -435,6 +436,7 @@ async def create_local_folder_scan(
         project_id=project.id,
         scan_type=ScanType.COMBINED,
         status=ScanStatus.PENDING,
+        summary={"filename": folder_label},
     )
     db.add(scan)
     await db.flush()

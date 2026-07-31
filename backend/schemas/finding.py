@@ -26,6 +26,7 @@ class FindingResponse(BaseModel):
     verified: bool | None = None
     metadata_json: dict | None = None
     status: str = "open"
+    is_new: bool = False
     created_at: datetime
 
     model_config = {"from_attributes": True}

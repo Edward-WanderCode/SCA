@@ -97,6 +97,7 @@ export interface Finding {
   verified: boolean | null;
   metadata_json: Record<string, unknown> | null;
   status: string;
+  is_new?: boolean;
   created_at: string;
 }
 

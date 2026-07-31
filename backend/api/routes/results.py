@@ -97,6 +97,51 @@ async def list_findings(
     result = await db.execute(query)
     findings = result.scalars().all()
 
+    # Determine which findings are NEW compared to their scan's baseline
+    new_ids = set()
+    if findings:
+        from models.scan import Scan, ScanStatus
+        scan_ids = {f.scan_id for f in findings if f.scan_id}
+        for s_id in scan_ids:
+            s_res = await db.execute(select(Scan).where(Scan.id == s_id))
+            scan_obj = s_res.scalar_one_or_none()
+            if not scan_obj or not scan_obj.project_id:
+                continue
+
+            # Find previous completed scan for the same project & scan_type before current scan's created_at
+            prev_s_res = await db.execute(
+                select(Scan)
+                .where(
+                    Scan.project_id == scan_obj.project_id,
+                    Scan.scan_type == scan_obj.scan_type,
+                    Scan.status == ScanStatus.COMPLETED,
+                    Scan.id != scan_obj.id,
+                    Scan.created_at < scan_obj.created_at
+                )
+                .order_by(desc(Scan.completed_at), desc(Scan.created_at))
+            )
+            prev_scan_obj = prev_s_res.scalars().first()
+
+            scan_findings = [f for f in findings if f.scan_id == s_id]
+
+            if not prev_scan_obj:
+                for f in scan_findings:
+                    new_ids.add(f.id)
+            else:
+                prev_f_res = await db.execute(select(Finding).where(Finding.scan_id == prev_scan_obj.id))
+                prev_findings_list = prev_f_res.scalars().all()
+                prev_keys = {
+                    (pf.file_path or "", pf.line_start or 0, pf.rule_id or "", pf.title or "")
+                    for pf in prev_findings_list
+                }
+                for f in scan_findings:
+                    if f.metadata_json and isinstance(f.metadata_json, dict) and f.metadata_json.get("is_new") is True:
+                        new_ids.add(f.id)
+                    else:
+                        sig = (f.file_path or "", f.line_start or 0, f.rule_id or "", f.title or "")
+                        if sig not in prev_keys:
+                            new_ids.add(f.id)
+
     items = [
         FindingResponse(
             id=f.id,
@@ -118,6 +163,7 @@ async def list_findings(
             verified=f.verified,
             metadata_json=f.metadata_json,
             status=f.status,
+            is_new=(f.id in new_ids or (f.metadata_json and f.metadata_json.get("is_new") is True)),
             created_at=f.created_at,
         )
         for f in findings

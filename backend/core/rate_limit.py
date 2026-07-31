@@ -18,10 +18,10 @@ def get_user_id_or_ip(request: Request) -> str:
             payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
             user_id = payload.get("sub")
             if user_id:
-                return f"user:{user_id}"
+                return "user:" + str(user_id)
         except Exception:
             pass
-    return f"ip:{get_remote_address(request)}"
+    return "ip:" + str(get_remote_address(request))
 
 def get_dynamic_limit(request: Request) -> str:
     """Return different limits based on user role or auth status."""

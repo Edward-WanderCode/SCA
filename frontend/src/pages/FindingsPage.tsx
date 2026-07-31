@@ -44,7 +44,7 @@ export default function FindingsPage() {
       link.remove();
       window.URL.revokeObjectURL(url);
     } catch (err) {
-      console.error(`Failed to export ${format} report:`, err);
+      console.error('Failed to export report format:', format, err);
     }
   };
 

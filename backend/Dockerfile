@@ -29,6 +29,11 @@ RUN mkdir -p /app/workspace
 # Expose port
 EXPOSE 8000
 
+# Create non-root user
+RUN groupadd -r appgroup && useradd -r -g appgroup appuser \
+    && chown -R appuser:appgroup /app
+USER appuser
+
 # Run migrations then start the application
 CMD ["sh", "-c", "PYTHONPATH=/app alembic upgrade head && PYTHONPATH=/app uvicorn main:app --host 0.0.0.0 --port 8000"]
 

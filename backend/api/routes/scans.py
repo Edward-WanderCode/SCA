@@ -257,7 +257,7 @@ async def create_local_scan(
 
         if not project:
             clean_filename = file.filename.rsplit('.', 1)[0]
-            project_name = f"Local: {clean_filename}"
+            project_name = clean_filename
             project = Project(
                 name=project_name,
                 repo_url=repo_url,
@@ -419,7 +419,7 @@ async def create_local_folder_scan(
         project = project_result.scalars().first()
 
         if not project:
-            project_name = f"Local Folder: {folder_label}"
+            project_name = folder_label
             project = Project(
                 name=project_name,
                 repo_url=repo_url,

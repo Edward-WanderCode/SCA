@@ -29,7 +29,7 @@ export default function NewScanDialog({ onClose, onSuccess }: NewScanDialogProps
       folderInputRef.current.setAttribute('webkitdirectory', '');
       folderInputRef.current.setAttribute('directory', '');
     }
-  }, []);
+  }, [mode]);
 
   const { data: projects } = useQuery({
     queryKey: ['projects-list'],
@@ -62,8 +62,17 @@ export default function NewScanDialog({ onClose, onSuccess }: NewScanDialogProps
       if (entry.kind === 'file') {
         try {
           const fh: File = await entry.getFile();
-          // preserve relative path for upload
-          (fh as any).webkitRelativePath = basePath ? `${basePath}/${fh.name}` : fh.name;
+          const relPath = basePath ? `${basePath}/${fh.name}` : fh.name;
+          try {
+            Object.defineProperty(fh, 'webkitRelativePath', {
+              value: relPath,
+              writable: true,
+              configurable: true,
+              enumerable: true,
+            });
+          } catch (e) {
+            (fh as any).relativePath = relPath;
+          }
           files.push(fh);
         } catch (err) {
           // skip file if cannot be read
@@ -77,29 +86,25 @@ export default function NewScanDialog({ onClose, onSuccess }: NewScanDialogProps
   }
 
   async function openFolderPicker() {
-    // Prefer showDirectoryPicker if available (Chrome, Edge, some browsers)
+    // Prefer showDirectoryPicker if available
     if ((window as any).showDirectoryPicker) {
       try {
         const dirHandle = await (window as any).showDirectoryPicker();
-        const files = await collectFilesFromDirectory(dirHandle, '');
+        const files = await collectFilesFromDirectory(dirHandle, dirHandle.name);
         if (files.length === 0) {
-          setSelectedFolderFiles(null);
-          setSelectedFolderName('');
           return;
         }
         setSelectedFolderFiles(files);
         setSelectedFolderName(dirHandle.name || files[0].name);
         return;
       } catch (err) {
-        // user cancelled or API error — fallthrough to input fallback
+        // user cancelled or browser error — fallback to input
       }
     }
 
-    // Fallback to hidden file input with webkitdirectory
+    // Fallback to file input
     folderInputRef.current?.click();
   }
-
-
 
   const handleSubmit = () => {
     if (selectedTypes.size === 0) return;
@@ -132,7 +137,7 @@ export default function NewScanDialog({ onClose, onSuccess }: NewScanDialogProps
       ? !!selectedProject
       : mode === 'local'
       ? !!selectedFile
-      : !!selectedFolderFiles);
+      : !!selectedFolderFiles && selectedFolderFiles.length > 0);
 
   return (
     <AnimatePresence>
@@ -378,7 +383,13 @@ export default function NewScanDialog({ onClose, onSuccess }: NewScanDialogProps
                   Select Local Folder
                 </label>
                 <input
-                  ref={folderInputRef}
+                  ref={(el) => {
+                    (folderInputRef as any).current = el;
+                    if (el) {
+                      el.setAttribute('webkitdirectory', '');
+                      el.setAttribute('directory', '');
+                    }
+                  }}
                   type="file"
                   multiple
                   style={{ display: 'none' }}
@@ -395,23 +406,46 @@ export default function NewScanDialog({ onClose, onSuccess }: NewScanDialogProps
                     setSelectedFolderName(rootFolder);
                   }}
                 />
-                <button
-                  type="button"
-                  className="btn btn-secondary"
+                <motion.div
+                  whileHover={{ borderColor: 'var(--accent-indigo)' }}
                   onClick={() => openFolderPicker()}
-                  style={{ height: 44, display: 'flex', alignItems: 'center', gap: 8, padding: '0 18px' }}
+                  style={{
+                    padding: selectedFolderFiles && selectedFolderFiles.length > 0 ? '16px 20px' : '32px 20px',
+                    borderRadius: 12,
+                    border: `2px dashed ${selectedFolderFiles && selectedFolderFiles.length > 0 ? 'var(--accent-indigo)' : 'var(--border-primary)'}`,
+                    background: selectedFolderFiles && selectedFolderFiles.length > 0 ? 'rgba(99, 102, 241, 0.06)' : 'transparent',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: 8,
+                    transition: 'all 200ms ease',
+                  }}
                 >
-                  <FolderOpen size={16} />
-                  Open Folder
-                </button>
-                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 10 }}>
-                  Choose a folder from your local machine and upload its contents for scanning.
-                </p>
-                {selectedFolderFiles && (
-                  <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 6 }}>
-                    Selected folder: <strong>{selectedFolderName}</strong> ({selectedFolderFiles.length} files)
-                  </p>
-                )}
+                  {selectedFolderFiles && selectedFolderFiles.length > 0 ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <FolderOpen size={22} color="var(--accent-indigo)" />
+                      <div>
+                        <p style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--text-primary)' }}>
+                          {selectedFolderName}
+                        </p>
+                        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                          {selectedFolderFiles.length} tệp tin — Click để chọn thư mục khác
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <FolderOpen size={28} color="var(--text-muted)" />
+                      <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', fontWeight: 500 }}>
+                        Click để chọn thư mục mã nguồn từ máy tính
+                      </p>
+                      <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                        Chọn một folder mã nguồn cục bộ để tải lên và quét bảo mật
+                      </p>
+                    </>
+                  )}
+                </motion.div>
               </div>
             )}
 

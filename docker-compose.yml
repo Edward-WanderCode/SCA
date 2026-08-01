@@ -42,6 +42,7 @@ services:
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
       TELEGRAM_BOT_COMMAND_THREAD_ID: ${TELEGRAM_BOT_COMMAND_THREAD_ID:-306}
+      TELEGRAM_BOT_API_URL: http://telegram-bot-api:8081
       PYTHONUNBUFFERED: "1"
 
     ports:
@@ -74,6 +75,7 @@ services:
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
       TELEGRAM_BOT_COMMAND_THREAD_ID: ${TELEGRAM_BOT_COMMAND_THREAD_ID:-306}
+      TELEGRAM_BOT_API_URL: http://telegram-bot-api:8081
       PYTHONUNBUFFERED: "1"
 
     depends_on:
@@ -97,6 +99,21 @@ services:
       - backend
     restart: unless-stopped
 
+  # === Local Telegram Bot API Server (2GB Upload/Download limit) ===
+  telegram-bot-api:
+    image: aiogram/telegram-bot-api:latest
+    command: --api-id=36260677 --api-hash=383d87b5563205b676b374a69d64af01 --local --dir=/var/lib/telegram-bot-api
+    environment:
+      TELEGRAM_API_ID: ${TELEGRAM_API_ID:-36260677}
+      TELEGRAM_API_HASH: ${TELEGRAM_API_HASH:-383d87b5563205b676b374a69d64af01}
+      TELEGRAM_LOCAL: "true"
+    volumes:
+      - telegram_bot_api_data:/var/lib/telegram-bot-api
+    ports:
+      - "8081:8081"
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   scan_workspace:
+  telegram_bot_api_data:

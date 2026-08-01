@@ -12,7 +12,7 @@ from db.session import async_session_factory
 from sqlalchemy import select
 from models.project import Project
 from models.scan import Scan, ScanStatus, ScanType
-from utils.telegram import send_telegram_notification, delete_telegram_topic, escape_html
+from utils.telegram import send_telegram_notification, delete_telegram_topic, escape_html, get_telegram_api_base_url
 
 logger = logging.getLogger(__name__)
 
@@ -26,97 +26,106 @@ def is_command_available(cmd: str) -> bool:
 async def start_telegram_bot_polling():
     """
     Background task to poll Telegram for callback queries and messages.
+    Dynamically loads credentials from DB/settings so polling auto-starts as soon as configured.
     """
-    token = settings.TELEGRAM_BOT_TOKEN
-    chat_id = settings.TELEGRAM_CHAT_ID
+    logger.info("Starting Telegram Bot Polling background loop...")
 
-    print(f"DEBUG: start_telegram_bot_polling started. Token configured: {bool(token)}, Chat ID: {chat_id}")
-
-    if not token or not chat_id:
-        print("DEBUG: Telegram Bot Polling not started: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not configured.")
-        return
-
-    url = f"https://api.telegram.org/bot{token}/getUpdates"
+    # Wait a few seconds to let DB initialize
+    await asyncio.sleep(5)
     offset = 0
 
-    print("DEBUG: Starting Telegram Bot Polling background loop...")
+    while True:
+        try:
+            from utils.telegram import get_telegram_credentials
+            token, chat_id, _ = get_telegram_credentials()
 
-    # Wait a few seconds to let the DB initialize first
-    await asyncio.sleep(5)
+            if not token or not chat_id:
+                await asyncio.sleep(10)
+                continue
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        while True:
-            try:
-                params = {"offset": offset, "timeout": 20}
-                print(f"DEBUG: Polling updates with offset {offset}...")
-                response = await client.get(url, params=params)
-                print(f"DEBUG: Poll response status: {response.status_code}")
-                if response.status_code != 200:
-                    await asyncio.sleep(5)
-                    continue
+            base_url = get_telegram_api_base_url()
+            url = f"{base_url}/bot{token}/getUpdates"
 
-                data = response.json()
-                if not data.get("ok"):
-                    print(f"DEBUG: Poll response not OK: {data}")
-                    await asyncio.sleep(5)
-                    continue
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                while True:
+                    current_token, current_chat_id, _ = get_telegram_credentials()
+                    if not current_token or not current_chat_id or current_token != token:
+                        await asyncio.sleep(5)
+                        break
 
-                results = data.get("result", [])
-                if results:
-                    print(f"DEBUG: Received {len(results)} updates")
-                for update in results:
-                    offset = update["update_id"] + 1
-                    print(f"DEBUG: Processing update_id: {update['update_id']} | Type: {'callback_query' if 'callback_query' in update else 'message' if 'message' in update else 'other'}")
+                    params = {"offset": offset, "timeout": 20}
+                    response = await client.get(url, params=params)
                     
-                    # Handle Callback Query
-                    if "callback_query" in update:
-                        asyncio.create_task(handle_callback_query(update["callback_query"]))
-                        
-                    # Handle Message
-                    elif "message" in update:
-                        asyncio.create_task(handle_message(update["message"]))
+                    if response.status_code != 200:
+                        await asyncio.sleep(5)
+                        continue
 
-            except asyncio.CancelledError:
-                print("DEBUG: Telegram Bot Polling task cancelled.")
-                break
-            except Exception as e:
-                print(f"DEBUG: Error in Telegram Bot Polling loop: {e}")
-                await asyncio.sleep(5)
+                    data = response.json()
+                    if not data.get("ok"):
+                        await asyncio.sleep(5)
+                        continue
+
+                    results = data.get("result", [])
+                    for update in results:
+                        offset = update["update_id"] + 1
+                        logger.info(f"Telegram Bot Update {update['update_id']} received. Type: {'callback_query' if 'callback_query' in update else 'message' if 'message' in update else 'other'}")
+                        
+                        # Handle Callback Query (Inline Buttons)
+                        if "callback_query" in update:
+                            asyncio.create_task(handle_callback_query(update["callback_query"]))
+                            
+                        # Handle Message
+                        elif "message" in update:
+                            asyncio.create_task(handle_message(update["message"]))
+
+        except asyncio.CancelledError:
+            logger.info("Telegram Bot Polling task cancelled.")
+            break
+        except Exception as e:
+            logger.error(f"Error in Telegram Bot Polling loop: {e}")
+            await asyncio.sleep(5)
 
 
 async def handle_message(message: dict):
     """
-    Filter messages that are sent inside the Bot Command topic containing document uploads.
+    Filter messages that contain document uploads (ZIP/RAR/source files) and present the Start Scan button.
     """
     try:
-        message_thread_id = message.get("message_thread_id")
-        print(f"DEBUG: handle_message message_thread_id: {message_thread_id} | Target thread ID: {settings.TELEGRAM_BOT_COMMAND_THREAD_ID}")
-        if message_thread_id != settings.TELEGRAM_BOT_COMMAND_THREAD_ID:
+        if "document" not in message:
             return
 
-        # Check if the message contains a document
-        if "document" in message:
-            print(f"DEBUG: handle_message: found document: {message['document'].get('file_name')}")
+        from utils.telegram import get_telegram_credentials
+        _, _, default_command_thread = get_telegram_credentials()
+
+        message_thread_id = message.get("message_thread_id")
+        target_thread = settings.TELEGRAM_BOT_COMMAND_THREAD_ID or default_command_thread
+
+        # Process document if uploaded to target command topic or if target_thread matches or is unrestricted
+        if target_thread is None or message_thread_id == target_thread:
             await handle_document_upload(message)
         else:
-            print(f"DEBUG: handle_message: no document in message: {list(message.keys())}")
+            # Also allow ZIP/RAR file uploads sent to any topic
+            file_name = message["document"].get("file_name", "").lower()
+            if file_name.endswith(".zip") or file_name.endswith(".rar"):
+                await handle_document_upload(message)
     except Exception as e:
         logger.exception(f"Unhandled exception in handle_message: {e}")
-        print(f"DEBUG Exception in handle_message: {e}")
 
 
 async def download_telegram_file(file_id: str, dest_path: Path) -> bool:
     """
     Download a file from Telegram server using the bot token.
     """
-    token = settings.TELEGRAM_BOT_TOKEN
+    from utils.telegram import get_telegram_credentials, get_telegram_api_base_url
+    token, _, _ = get_telegram_credentials()
     if not token:
         return False
         
     async with httpx.AsyncClient() as client:
         try:
+            base_url = get_telegram_api_base_url()
             # 1. Get file path
-            url = f"https://api.telegram.org/bot{token}/getFile"
+            url = f"{base_url}/bot{token}/getFile"
             res = await client.get(url, params={"file_id": file_id})
             if res.status_code != 200:
                 return False
@@ -126,7 +135,7 @@ async def download_telegram_file(file_id: str, dest_path: Path) -> bool:
                 return False
                 
             file_path = data["result"]["file_path"]
-            download_url = f"https://api.telegram.org/file/bot{token}/{file_path}"
+            download_url = f"{base_url}/file/bot{token}/{file_path}"
             
             # 2. Download and save
             dest_path.parent.mkdir(parents=True, exist_ok=True)
@@ -153,11 +162,11 @@ async def handle_document_upload(message: dict):
     file_size = document.get("file_size", 0)
     thread_id = message.get("message_thread_id")
 
-    # 1. Check size (50MB limit)
-    MAX_SIZE = 50 * 1024 * 1024  # 50MB
+    # 1. Check size (2GB limit for local server)
+    MAX_SIZE = 2000 * 1024 * 1024  # 2000 MB (2 GB)
     if file_size > MAX_SIZE:
         size_mb = round(file_size / (1024 * 1024), 2)
-        reply = f"❌ <b>Lỗi tải lên:</b> Dung lượng tệp tin quá lớn ({size_mb} MB). Giới hạn tối đa là 50 MB."
+        reply = f"❌ <b>Lỗi tải lên:</b> Dung lượng tệp tin quá lớn ({size_mb} MB). Giới hạn tối đa là 2000 MB (2 GB)."
         send_telegram_notification(reply, message_thread_id=thread_id)
         return
 
@@ -289,7 +298,8 @@ async def handle_callback_query(callback_query: dict):
     logger.info(f"Received Telegram callback query: {data}")
 
     # Answer callback query to dismiss loading state in client
-    answer_url = f"https://api.telegram.org/bot{token}/answerCallbackQuery"
+    base_url = get_telegram_api_base_url()
+    answer_url = f"{base_url}/bot{token}/answerCallbackQuery"
     try:
         async with httpx.AsyncClient() as client:
             await client.post(answer_url, json={"callback_query_id": query_id})
@@ -434,7 +444,7 @@ async def process_telegram_scan_trigger(upload_uuid: str, current_thread_id: int
     # 1. Create or reuse a Project in DB based on the uploaded filename
     clean_name = file_name.replace(".zip", "").replace(".rar", "").replace(".ZIP", "").replace(".RAR", "")
     stable_repo_url = f"local://{file_name}"
-    project_name = f"Telegram: {clean_name}"
+    project_name = clean_name
 
     async with async_session_factory() as session:
         try:

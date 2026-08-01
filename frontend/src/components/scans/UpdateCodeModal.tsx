@@ -35,7 +35,7 @@ export default function UpdateCodeModal({
       folderInputRef.current.setAttribute('webkitdirectory', '');
       folderInputRef.current.setAttribute('directory', '');
     }
-  }, []);
+  }, [mode]);
 
   const zipMutation = useMutation({
     mutationFn: (file: File) => scansApi.localScan(file, ['combined'], projectId),
@@ -80,7 +80,17 @@ export default function UpdateCodeModal({
             if (entry.kind === 'file') {
               try {
                 const fh = await entry.getFile();
-                (fh as any).webkitRelativePath = basePath ? `${basePath}/${fh.name}` : fh.name;
+                const relPath = basePath ? `${basePath}/${fh.name}` : fh.name;
+                try {
+                  Object.defineProperty(fh, 'webkitRelativePath', {
+                    value: relPath,
+                    writable: true,
+                    configurable: true,
+                    enumerable: true,
+                  });
+                } catch (e) {
+                  (fh as any).relativePath = relPath;
+                }
                 files.push(fh);
               } catch (e) {}
             } else if (entry.kind === 'directory') {
@@ -88,7 +98,7 @@ export default function UpdateCodeModal({
             }
           }
         }
-        await walk(dirHandle, '');
+        await walk(dirHandle, dirHandle.name);
         if (files.length > 0) {
           setSelectedFolderFiles(files);
           setSelectedFolderName(dirHandle.name || files[0].name);
@@ -354,7 +364,13 @@ export default function UpdateCodeModal({
                   Tải lên Thư mục mã nguồn từ máy tính
                 </label>
                 <input
-                  ref={folderInputRef}
+                  ref={(el) => {
+                    (folderInputRef as any).current = el;
+                    if (el) {
+                      el.setAttribute('webkitdirectory', '');
+                      el.setAttribute('directory', '');
+                    }
+                  }}
                   type="file"
                   multiple
                   style={{ display: 'none' }}
@@ -371,20 +387,45 @@ export default function UpdateCodeModal({
                     setSelectedFolderName(rootFolder);
                   }}
                 />
-                <button
-                  type="button"
-                  className="btn btn-secondary"
+                <div
                   onClick={() => openFolderPicker()}
-                  style={{ height: 44, display: 'flex', alignItems: 'center', gap: 8, padding: '0 18px' }}
+                  style={{
+                    padding: selectedFolderFiles && selectedFolderFiles.length > 0 ? '16px 20px' : '32px 20px',
+                    borderRadius: 12,
+                    border: `2px dashed ${selectedFolderFiles && selectedFolderFiles.length > 0 ? 'var(--accent-indigo)' : 'var(--border-primary)'}`,
+                    background: selectedFolderFiles && selectedFolderFiles.length > 0 ? 'rgba(99, 102, 241, 0.06)' : 'transparent',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: 8,
+                    transition: 'all 200ms ease',
+                  }}
                 >
-                  <FolderOpen size={16} />
-                  Chọn thư mục mã nguồn mới
-                </button>
-                {selectedFolderFiles && (
-                  <p style={{ fontSize: '0.8125rem', color: 'var(--accent-indigo)', marginTop: 10, fontWeight: 500 }}>
-                    Thư mục đã chọn: <strong>{selectedFolderName}</strong> ({selectedFolderFiles.length} tệp)
-                  </p>
-                )}
+                  {selectedFolderFiles && selectedFolderFiles.length > 0 ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <FolderOpen size={22} color="var(--accent-indigo)" />
+                      <div>
+                        <p style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--text-primary)' }}>
+                          {selectedFolderName}
+                        </p>
+                        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                          {selectedFolderFiles.length} tệp tin — Nhấn để chọn thư mục khác
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <FolderOpen size={28} color="var(--text-muted)" />
+                      <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', fontWeight: 500 }}>
+                        Nhấn để chọn thư mục mã nguồn từ máy tính
+                      </p>
+                      <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                        Chọn một folder mã nguồn mới để cập nhật cho dự án này
+                      </p>
+                    </>
+                  )}
+                </div>
               </div>
             ) : mode === 'host' ? (
               <div>

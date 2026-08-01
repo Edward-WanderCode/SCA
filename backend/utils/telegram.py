@@ -19,6 +19,12 @@ def _post_telegram_api(url: str, **kwargs) -> dict:
 
 
 
+def get_telegram_api_base_url() -> str:
+    """Return the configured base URL for Telegram Bot API (defaults to https://api.telegram.org or local server)."""
+    base = getattr(settings, 'TELEGRAM_BOT_API_URL', 'https://api.telegram.org')
+    return base.rstrip('/')
+
+
 def escape_html(text: str) -> str:
     """
     Escape special characters for Telegram HTML parse mode.
@@ -70,7 +76,7 @@ def create_telegram_topic(project_name: str) -> int | None:
     if not token or not chat_id:
         return None
 
-    url = f"https://api.telegram.org/bot{token}/createForumTopic"
+    url = f"{get_telegram_api_base_url()}/bot{token}/createForumTopic"
     payload = {
         "chat_id": chat_id,
         "name": project_name
@@ -104,7 +110,7 @@ def send_telegram_notification(
 
     target_thread_id = message_thread_id if message_thread_id is not None else default_thread_id
 
-    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    url = f"{get_telegram_api_base_url()}/bot{token}/sendMessage"
     payload = {
         "chat_id": chat_id,
         "text": message,
@@ -138,7 +144,7 @@ def pin_telegram_message(message_id: int) -> bool:
     if not token or not chat_id:
         return False
 
-    url = f"https://api.telegram.org/bot{token}/pinChatMessage"
+    url = f"{get_telegram_api_base_url()}/bot{token}/pinChatMessage"
     payload = {
         "chat_id": chat_id,
         "message_id": message_id,
@@ -162,7 +168,7 @@ def unpin_telegram_message(message_id: int) -> bool:
     if not token or not chat_id:
         return False
 
-    url = f"https://api.telegram.org/bot{token}/unpinChatMessage"
+    url = f"{get_telegram_api_base_url()}/bot{token}/unpinChatMessage"
     payload = {
         "chat_id": chat_id,
         "message_id": message_id
@@ -185,7 +191,7 @@ def delete_telegram_topic(message_thread_id: int) -> bool:
     if not token or not chat_id:
         return False
 
-    url = f"https://api.telegram.org/bot{token}/deleteForumTopic"
+    url = f"{get_telegram_api_base_url()}/bot{token}/deleteForumTopic"
     payload = {
         "chat_id": chat_id,
         "message_thread_id": message_thread_id
@@ -215,7 +221,7 @@ def send_telegram_document(
 
     target_thread_id = message_thread_id if message_thread_id is not None else default_thread_id
 
-    url = f"https://api.telegram.org/bot{token}/sendDocument"
+    url = f"{get_telegram_api_base_url()}/bot{token}/sendDocument"
     data = {
         "chat_id": chat_id,
         "caption": caption,

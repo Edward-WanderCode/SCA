@@ -53,6 +53,7 @@ class Settings(BaseSettings):
     TELEGRAM_BOT_TOKEN: Optional[str] = None
     TELEGRAM_CHAT_ID: Optional[str] = None
     TELEGRAM_BOT_COMMAND_THREAD_ID: int = 306
+    TELEGRAM_BOT_API_URL: str = "https://api.telegram.org"
 
     # CORS
     CORS_ORIGINS: list[str] = [

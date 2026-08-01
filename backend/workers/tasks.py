@@ -40,7 +40,8 @@ def _ensure_project_telegram_topic(session: Session, project: Project) -> int | 
 
     try:
         from utils.telegram import create_telegram_topic
-        topic_id = create_telegram_topic(project.name)
+        clean_topic_name = project.name.replace("Local Folder: ", "").replace("Local: ", "").replace("Telegram: ", "").strip()
+        topic_id = create_telegram_topic(clean_topic_name)
         if topic_id:
             project.telegram_topic_id = topic_id
             session.commit()

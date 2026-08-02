@@ -3,9 +3,9 @@
 import logging
 from datetime import datetime, timezone
 from croniter import croniter
-from sqlalchemy.orm import Session
 from workers.celery_app import celery_app
-from workers.tasks import SyncSession, run_scan
+from workers.db import SyncSession
+from workers.tasks import run_scan
 from models.project import Project
 from models.scan import Scan, ScanType, ScanStatus
 

@@ -7,19 +7,11 @@ import time
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from loguru import logger
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 
 from config import settings
 from models.scan import Scan, ScanStatus
 from workers.celery_app import celery_app
-
-sync_db_url = settings.DATABASE_URL.replace("+asyncpg", "").replace("postgresql://", "postgresql+psycopg2://")
-if "postgresql+psycopg2" not in sync_db_url and "postgresql://" in sync_db_url:
-    sync_db_url = sync_db_url.replace("postgresql://", "postgresql+psycopg2://")
-
-sync_engine = create_engine(sync_db_url, pool_size=2)
-SyncSession = sessionmaker(bind=sync_engine)
+from workers.db import SyncSession
 
 @celery_app.task(name="workers.cleanup_tasks.cleanup_old_workspaces")
 def cleanup_old_workspaces():

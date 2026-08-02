@@ -35,15 +35,22 @@ def escape_html(text: str) -> str:
 
 
 def get_telegram_credentials() -> tuple[str | None, str | None, int | None]:
-    """Get Telegram credentials and default topic thread ID, with dynamic database lookup fallback for Celery workers."""
+    """Get Telegram credentials and default topic thread ID, with cached database lookup."""
+    import time
+
+    # Check in-memory cache first (60 second TTL)
+    cache = getattr(get_telegram_credentials, '_cache', None)
+    cache_time = getattr(get_telegram_credentials, '_cache_time', 0)
+    if cache and (time.time() - cache_time) < 60:
+        return cache
+
     token = settings.TELEGRAM_BOT_TOKEN
     chat_id = settings.TELEGRAM_CHAT_ID
     thread_id = getattr(settings, 'TELEGRAM_BOT_COMMAND_THREAD_ID', None)
 
     try:
-        from sqlalchemy import create_engine, text
-        sync_url = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
-        sync_engine = create_engine(sync_url, pool_pre_ping=True)
+        from workers.db import sync_engine
+        from sqlalchemy import text
         with sync_engine.connect() as conn:
             result = conn.execute(text("SELECT key, value FROM system_settings"))
             for row in result:
@@ -63,7 +70,12 @@ def get_telegram_credentials() -> tuple[str | None, str | None, int | None]:
     except Exception as e:
         logger.debug(f"Failed to load Telegram credentials from DB: {e}")
 
-    return token, chat_id, thread_id
+    # Update cache
+    credentials = (token, chat_id, thread_id)
+    get_telegram_credentials._cache = credentials
+    get_telegram_credentials._cache_time = time.time()
+
+    return credentials
 
 
 def create_telegram_topic(project_name: str) -> int | None:

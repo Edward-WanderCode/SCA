@@ -166,10 +166,16 @@ async def get_recent_activity(
     current_user: User = Depends(get_current_active_user),
 ):
     """Get recent scans and critical findings."""
-    # Recent scans
+    # Recent scans — use subquery to avoid N+1 finding count queries
+    finding_count_subq = (
+        select(Finding.scan_id, func.count().label("fcount"))
+        .group_by(Finding.scan_id)
+        .subquery()
+    )
     scans_q = (
-        select(Scan, Project.name.label("project_name"))
+        select(Scan, Project.name.label("project_name"), func.coalesce(finding_count_subq.c.fcount, 0).label("findings_count"))
         .join(Project, Scan.project_id == Project.id)
+        .outerjoin(finding_count_subq, Scan.id == finding_count_subq.c.scan_id)
         .order_by(desc(Scan.created_at))
         .limit(limit)
     )
@@ -178,13 +184,7 @@ async def get_recent_activity(
     for row in scans_result.all():
         scan = row[0]
         project_name = row[1]
-
-        # Get finding count for this scan
-        finding_count = (
-            await db.execute(
-                select(func.count()).where(Finding.scan_id == scan.id)
-            )
-        ).scalar() or 0
+        finding_count = row[2]
 
         recent_scans.append({
             "id": scan.id,

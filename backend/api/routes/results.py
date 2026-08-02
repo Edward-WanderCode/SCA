@@ -1,18 +1,95 @@
 """Findings/Results API routes."""
 
+import datetime
+import json
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc, or_, case
+
 from db.session import get_db
 from models.finding import Finding, Severity
+from models.scan import Scan, ScanStatus
 from models.user import User
 from schemas.finding import FindingResponse, FindingListResponse, FindingUpdateStatus
 from api.deps import get_current_active_user
-import json
 from core.cache import redis_client, clear_all_api_caches
 
 router = APIRouter()
 
+
+# ──────────────────────────────────────────────────────────────
+# Shared helpers (extracted from 3+ copy-paste occurrences)
+# ──────────────────────────────────────────────────────────────
+
+def _build_finding_response(f: Finding, is_new: bool = False) -> FindingResponse:
+    """Build a FindingResponse DTO from a Finding ORM object."""
+    return FindingResponse(
+        id=f.id,
+        scan_id=f.scan_id,
+        severity=f.severity,
+        title=f.title,
+        description=f.description,
+        file_path=f.file_path,
+        line_start=f.line_start,
+        line_end=f.line_end,
+        code_snippet=f.code_snippet,
+        rule_id=f.rule_id,
+        cve_id=f.cve_id,
+        cvss_score=f.cvss_score,
+        package_name=f.package_name,
+        package_version=f.package_version,
+        fixed_version=f.fixed_version,
+        detector_type=f.detector_type,
+        verified=f.verified,
+        metadata_json=f.metadata_json,
+        status=f.status,
+        is_new=is_new,
+        created_at=f.created_at,
+    )
+
+
+def _get_latest_scan_subquery(project_id: str | None = None):
+    """Build subquery for latest completed scan per (project, scan_type)."""
+    rn_subq = (
+        select(
+            Scan.id.label("scan_id"),
+            func.row_number()
+            .over(
+                partition_by=[Scan.project_id, Scan.scan_type],
+                order_by=[desc(Scan.completed_at), desc(Scan.created_at)],
+            )
+            .label("rn"),
+        )
+        .where(Scan.status == ScanStatus.COMPLETED)
+    )
+    if project_id:
+        rn_subq = rn_subq.where(Scan.project_id == project_id)
+
+    rn_subq_s = rn_subq.subquery()
+    return select(rn_subq_s.c.scan_id).where(rn_subq_s.c.rn == 1)
+
+
+SEVERITY_ORDER = case(
+    (Finding.severity == Severity.CRITICAL, 0),
+    (Finding.severity == Severity.HIGH, 1),
+    (Finding.severity == Severity.MEDIUM, 2),
+    (Finding.severity == Severity.LOW, 3),
+    else_=4,
+)
+
+
+def _get_severity_label(f: Finding) -> str:
+    return f.severity.value.upper() if hasattr(f.severity, "value") else str(f.severity).upper()
+
+
+def _get_severity_key(f: Finding) -> str:
+    return f.severity.value.lower() if hasattr(f.severity, "value") else str(f.severity).lower()
+
+
+# ──────────────────────────────────────────────────────────────
+# API Routes
+# ──────────────────────────────────────────────────────────────
 
 @router.get("", response_model=FindingListResponse)
 async def list_findings(
@@ -41,24 +118,9 @@ async def list_findings(
     if scan_id:
         query = query.where(Finding.scan_id == scan_id)
     else:
-        from models.scan import Scan, ScanStatus
-        # Subquery using ROW_NUMBER() to get the latest completed scan for each (project_id, scan_type)
-        rn_subq = (
-            select(
-                Scan.id.label("scan_id"),
-                func.row_number().over(
-                    partition_by=[Scan.project_id, Scan.scan_type],
-                    order_by=[desc(Scan.completed_at), desc(Scan.created_at)]
-                ).label("rn")
-            )
-            .where(Scan.status == ScanStatus.COMPLETED)
-        )
-        if project_id:
-            rn_subq = rn_subq.where(Scan.project_id == project_id)
-        
-        rn_subq_s = rn_subq.subquery()
-        latest_scan_ids_q = select(rn_subq_s.c.scan_id).where(rn_subq_s.c.rn == 1)
+        latest_scan_ids_q = _get_latest_scan_subquery(project_id)
         query = query.where(Finding.scan_id.in_(latest_scan_ids_q))
+
     if severity:
         query = query.where(Finding.severity == severity)
     if file_path:
@@ -73,25 +135,13 @@ async def list_findings(
         query = query.where(Finding.status == status)
     if search:
         query = query.where(
-            or_(
-                Finding.title.ilike(f"%{search}%"),
-                Finding.description.ilike(f"%{search}%"),
-            )
+            or_(Finding.title.ilike(f"%{search}%"), Finding.description.ilike(f"%{search}%"))
         )
 
-    # Count total
     count_query = select(func.count()).select_from(query.subquery())
     total = (await db.execute(count_query)).scalar() or 0
 
-    # Order: critical first, then by creation time
-    severity_order = case(
-        (Finding.severity == Severity.CRITICAL, 0),
-        (Finding.severity == Severity.HIGH, 1),
-        (Finding.severity == Severity.MEDIUM, 2),
-        (Finding.severity == Severity.LOW, 3),
-        else_=4,
-    )
-    query = query.order_by(severity_order, desc(Finding.created_at))
+    query = query.order_by(SEVERITY_ORDER, desc(Finding.created_at))
     query = query.offset((page - 1) * page_size).limit(page_size)
 
     result = await db.execute(query)
@@ -100,7 +150,6 @@ async def list_findings(
     # Determine which findings are NEW compared to their scan's baseline
     new_ids = set()
     if findings:
-        from models.scan import Scan, ScanStatus
         scan_ids = {f.scan_id for f in findings if f.scan_id}
         for s_id in scan_ids:
             s_res = await db.execute(select(Scan).where(Scan.id == s_id))
@@ -108,7 +157,6 @@ async def list_findings(
             if not scan_obj or not scan_obj.project_id:
                 continue
 
-            # Find previous completed scan for the same project & scan_type before current scan's created_at
             prev_s_res = await db.execute(
                 select(Scan)
                 .where(
@@ -116,7 +164,7 @@ async def list_findings(
                     Scan.scan_type == scan_obj.scan_type,
                     Scan.status == ScanStatus.COMPLETED,
                     Scan.id != scan_obj.id,
-                    Scan.created_at < scan_obj.created_at
+                    Scan.created_at < scan_obj.created_at,
                 )
                 .order_by(desc(Scan.completed_at), desc(Scan.created_at))
             )
@@ -143,37 +191,14 @@ async def list_findings(
                             new_ids.add(f.id)
 
     items = [
-        FindingResponse(
-            id=f.id,
-            scan_id=f.scan_id,
-            severity=f.severity,
-            title=f.title,
-            description=f.description,
-            file_path=f.file_path,
-            line_start=f.line_start,
-            line_end=f.line_end,
-            code_snippet=f.code_snippet,
-            rule_id=f.rule_id,
-            cve_id=f.cve_id,
-            cvss_score=f.cvss_score,
-            package_name=f.package_name,
-            package_version=f.package_version,
-            fixed_version=f.fixed_version,
-            detector_type=f.detector_type,
-            verified=f.verified,
-            metadata_json=f.metadata_json,
-            status=f.status,
+        _build_finding_response(
+            f,
             is_new=(f.id in new_ids or (f.metadata_json and f.metadata_json.get("is_new") is True)),
-            created_at=f.created_at,
         )
         for f in findings
     ]
 
-    result_response = FindingListResponse(
-        items=items, total=total, page=page, page_size=page_size
-    )
-    
-    # Cache for 5 minutes
+    result_response = FindingListResponse(items=items, total=total, page=page, page_size=page_size)
     await redis_client.setex(cache_key, 300, result_response.model_dump_json())
     return result_response
 
@@ -188,41 +213,17 @@ async def export_findings_report(
 ):
     """Export active findings report as Markdown, HTML, or JSON."""
     query = select(Finding)
-
-    from models.scan import Scan, ScanStatus
-    rn_subq = (
-        select(
-            Scan.id.label("scan_id"),
-            func.row_number().over(
-                partition_by=[Scan.project_id, Scan.scan_type],
-                order_by=[desc(Scan.completed_at), desc(Scan.created_at)]
-            ).label("rn")
-        )
-        .where(Scan.status == ScanStatus.COMPLETED)
-    )
-    if project_id:
-        rn_subq = rn_subq.where(Scan.project_id == project_id)
-    
-    rn_subq_s = rn_subq.subquery()
-    latest_scan_ids_q = select(rn_subq_s.c.scan_id).where(rn_subq_s.c.rn == 1)
+    latest_scan_ids_q = _get_latest_scan_subquery(project_id)
     query = query.where(Finding.scan_id.in_(latest_scan_ids_q))
 
     if severity:
         query = query.where(Finding.severity == severity)
 
-    # Order findings by severity: critical -> high -> medium -> low -> info
-    severity_order = case(
-        (Finding.severity == Severity.CRITICAL, 0),
-        (Finding.severity == Severity.HIGH, 1),
-        (Finding.severity == Severity.MEDIUM, 2),
-        (Finding.severity == Severity.LOW, 3),
-        else_=4,
-    )
-    query = query.order_by(severity_order, desc(Finding.created_at))
-
+    query = query.order_by(SEVERITY_ORDER, desc(Finding.created_at))
     result = await db.execute(query)
     findings = result.scalars().all()
 
+    # Resolve project info
     project_name = "Global Report"
     repo_url = "N/A"
     branch = "N/A"
@@ -238,489 +239,50 @@ async def export_findings_report(
     total_count = len(findings)
     severity_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
     for f in findings:
-        sev = f.severity.value if hasattr(f.severity, "value") else str(f.severity).lower()
+        sev = _get_severity_key(f)
         if sev in severity_counts:
             severity_counts[sev] += 1
 
-    import datetime
     now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ts_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe_project = project_name.lower().replace(" ", "_")
 
     if format == "markdown":
-        md_content = f"# Security Scan Report: {project_name}\n"
-        md_content += f"- **Export Date:** {now_str}\n"
-        md_content += f"- **Repository:** {repo_url}\n"
-        md_content += f"- **Branch:** {branch}\n\n"
-        
-        md_content += "## Summary\n"
-        md_content += f"- **Critical:** {severity_counts['critical']}\n"
-        md_content += f"- **High:** {severity_counts['high']}\n"
-        md_content += f"- **Medium:** {severity_counts['medium']}\n"
-        md_content += f"- **Low:** {severity_counts['low']}\n"
-        md_content += f"- **Info:** {severity_counts['info']}\n"
-        md_content += f"- **Total Findings:** {total_count}\n\n"
-        
-        md_content += "## Findings Details\n\n"
-        
-        if not findings:
-            md_content += "*No active findings found.*\n"
-        else:
-            for idx, f in enumerate(findings, 1):
-                sev_label = str(f.severity.value).upper() if hasattr(f.severity, "value") else str(f.severity).upper()
-                md_content += f"### {idx}. [{sev_label}] {f.title}\n"
-                md_content += f"- **Severity:** {sev_label}\n"
-                if f.rule_id:
-                    md_content += f"- **Rule ID:** `{f.rule_id}`\n"
-                if f.cve_id:
-                    md_content += f"- **CVE ID:** `{f.cve_id}`"
-                    if f.cvss_score:
-                        md_content += f" (CVSS: {f.cvss_score})"
-                    md_content += "\n"
-                if f.package_name:
-                    md_content += f"- **Package:** `{f.package_name}@{f.package_version}`"
-                    if f.fixed_version:
-                        md_content += f" (Fixed in: `{f.fixed_version}`)"
-                    md_content += "\n"
-                if f.file_path:
-                    location = f"{f.file_path}"
-                    if f.line_start:
-                        location += f":{f.line_start}"
-                    md_content += f"- **File Location:** `{location}`\n"
-                
-                md_content += f"\n**Description:**\n{f.description or 'No description provided.'}\n\n"
-                
-                if f.code_snippet:
-                    lang = "code"
-                    if f.file_path:
-                        ext = f.file_path.split(".")[-1].lower()
-                        if ext in ["py", "go", "js", "ts", "tsx", "jsx", "java", "sh", "yml", "yaml", "json"]:
-                            lang = ext
-                    md_content += f"**Code Snippet:**\n```{lang}\n{f.code_snippet}\n```\n\n"
-                
-                if f.fixed_version:
-                    md_content += f"**Recommended Fix:**\n"
-                    md_content += f"Upgrade `{f.package_name}` from `{f.package_version}` to `{f.fixed_version}`.\n\n"
-                    
-                md_content += "---\n\n"
-                
-        filename = f"sca_report_{project_name.lower().replace(' ', '_')}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
+        content = _render_markdown_report(findings, project_name, repo_url, branch, now_str, severity_counts, total_count)
         return Response(
-            content=md_content,
-            media_type="text/markdown",
-            headers={"Content-Disposition": f"attachment; filename={filename}"}
+            content=content, media_type="text/markdown",
+            headers={"Content-Disposition": f"attachment; filename=sca_report_{safe_project}_{ts_str}.md"},
         )
-
     elif format == "html":
-        html_content = f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SCA Security Report - {project_name}</title>
-    <style>
-        :root {{
-            --bg-primary: #0b0f19;
-            --bg-secondary: #111827;
-            --bg-tertiary: #1f2937;
-            --text-primary: #f1f5f9;
-            --text-secondary: #cbd5e1;
-            --text-muted: #94a3b8;
-            --border-color: rgba(71, 85, 105, 0.2);
-            
-            --critical: #ef4444;
-            --high: #f97316;
-            --medium: #eab308;
-            --low: #3b82f6;
-            --info: #6b7280;
-        }}
-        
-        body {{
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            background-color: var(--bg-primary);
-            color: var(--text-primary);
-            margin: 0;
-            padding: 40px 20px;
-            line-height: 1.5;
-        }}
-        
-        .container {{
-            max-width: 1000px;
-            margin: 0 auto;
-        }}
-        
-        .header {{
-            border-bottom: 1px solid var(--border-color);
-            padding-bottom: 24px;
-            margin-bottom: 32px;
-        }}
-        
-        h1 {{
-            font-size: 28px;
-            font-weight: 700;
-            margin: 0 0 8px 0;
-        }}
-        
-        .meta-grid {{
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 16px;
-            margin-top: 16px;
-        }}
-        
-        .meta-item {{
-            font-size: 14px;
-            color: var(--text-muted);
-        }}
-        
-        .meta-item strong {{
-            color: var(--text-secondary);
-        }}
-        
-        .summary-grid {{
-            display: grid;
-            grid-template-columns: repeat(5, 1fr);
-            gap: 16px;
-            margin-bottom: 40px;
-        }}
-        
-        @media (max-width: 640px) {{
-            .summary-grid {{
-                grid-template-columns: repeat(2, 1fr);
-            }}
-        }}
-        
-        .summary-card {{
-            background: var(--bg-secondary);
-            border: 1px solid var(--border-color);
-            border-radius: 10px;
-            padding: 20px 16px;
-            text-align: center;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-        }}
-        
-        .summary-card.critical {{ border-left: 4px solid var(--critical); }}
-        .summary-card.high {{ border-left: 4px solid var(--high); }}
-        .summary-card.medium {{ border-left: 4px solid var(--medium); }}
-        .summary-card.low {{ border-left: 4px solid var(--low); }}
-        .summary-card.info {{ border-left: 4px solid var(--info); }}
-        
-        .summary-count {{
-            font-size: 32px;
-            font-weight: 700;
-            line-height: 1;
-            margin-bottom: 6px;
-        }}
-        
-        .summary-card.critical .summary-count {{ color: var(--critical); }}
-        .summary-card.high .summary-count {{ color: var(--high); }}
-        .summary-card.medium .summary-count {{ color: var(--medium); }}
-        .summary-card.low .summary-count {{ color: var(--low); }}
-        .summary-card.info .summary-count {{ color: var(--info); }}
-        
-        .summary-label {{
-            font-size: 11px;
-            color: var(--text-muted);
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            font-weight: 600;
-        }}
-        
-        .findings-title-bar {{
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 20px;
-            border-bottom: 1px solid var(--border-color);
-            padding-bottom: 12px;
-        }}
-        
-        .findings-title {{
-            font-size: 20px;
-            font-weight: 600;
-            margin: 0;
-        }}
-        
-        .findings-count {{
-            font-size: 14px;
-            color: var(--text-muted);
-        }}
-        
-        .finding-card {{
-            background: var(--bg-secondary);
-            border: 1px solid var(--border-color);
-            border-radius: 12px;
-            padding: 24px;
-            margin-bottom: 20px;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
-        }}
-        
-        .finding-card.critical {{ border-left: 4px solid var(--critical); }}
-        .finding-card.high {{ border-left: 4px solid var(--high); }}
-        .finding-card.medium {{ border-left: 4px solid var(--medium); }}
-        .finding-card.low {{ border-left: 4px solid var(--low); }}
-        .finding-card.info {{ border-left: 4px solid var(--info); }}
-        
-        .finding-header {{
-            display: flex;
-            align-items: flex-start;
-            justify-content: space-between;
-            gap: 16px;
-            margin-bottom: 12px;
-        }}
-        
-        .finding-title {{
-            font-size: 16px;
-            font-weight: 600;
-            margin: 0;
-            color: #ffffff;
-            line-height: 1.4;
-        }}
-        
-        .badge {{
-            display: inline-block;
-            font-size: 10px;
-            font-weight: 700;
-            padding: 4px 8px;
-            border-radius: 6px;
-            text-transform: uppercase;
-            letter-spacing: 0.02em;
-        }}
-        
-        .badge.critical {{ background: rgba(239, 68, 68, 0.12); color: var(--critical); border: 1px solid rgba(239, 68, 68, 0.2); }}
-        .badge.high {{ background: rgba(249, 115, 22, 0.12); color: var(--high); border: 1px solid rgba(249, 115, 22, 0.2); }}
-        .badge.medium {{ background: rgba(234, 179, 8, 0.12); color: var(--medium); border: 1px solid rgba(234, 179, 8, 0.2); }}
-        .badge.low {{ background: rgba(59, 130, 246, 0.12); color: var(--low); border: 1px solid rgba(59, 130, 246, 0.2); }}
-        .badge.info {{ background: rgba(107, 114, 128, 0.12); color: var(--info); border: 1px solid rgba(107, 114, 128, 0.2); }}
-        
-        .finding-meta {{
-            display: flex;
-            flex-wrap: wrap;
-            gap: 16px;
-            font-size: 13px;
-            color: var(--text-muted);
-            margin-bottom: 16px;
-            border-bottom: 1px dashed var(--border-color);
-            padding-bottom: 12px;
-        }}
-        
-        .finding-meta-item {{
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }}
-        
-        .finding-description {{
-            font-size: 14px;
-            color: var(--text-secondary);
-            line-height: 1.6;
-            margin-bottom: 16px;
-        }}
-        
-        .code-block {{
-            background: #030712;
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            padding: 16px;
-            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
-            font-size: 13px;
-            overflow-x: auto;
-            color: #e2e8f0;
-            margin-bottom: 16px;
-        }}
-        
-        .code-line {{
-            color: #ef4444;
-        }}
-        
-        .fix-box {{
-            background: rgba(16, 185, 129, 0.06);
-            border: 1px solid rgba(16, 185, 129, 0.15);
-            border-radius: 8px;
-            padding: 14px 16px;
-            font-size: 13px;
-            color: var(--text-secondary);
-        }}
-        
-        .fix-title {{
-            font-weight: 700;
-            color: #10b981;
-            margin-bottom: 4px;
-            text-transform: uppercase;
-            font-size: 11px;
-            letter-spacing: 0.05em;
-        }}
-        
-        .no-findings {{
-            text-align: center;
-            padding: 48px;
-            color: var(--text-muted);
-            background: var(--bg-secondary);
-            border: 1px solid var(--border-color);
-            border-radius: 12px;
-        }}
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>Security Scan Report</h1>
-            <div class="meta-grid">
-                <div class="meta-item">Project: <strong>{project_name}</strong></div>
-                <div class="meta-item">Exported At: <strong>{now_str}</strong></div>
-                <div class="meta-item">Repository: <strong>{repo_url}</strong></div>
-                <div class="meta-item">Branch: <strong>{branch}</strong></div>
-            </div>
-        </div>
-        
-        <div class="summary-grid">
-            <div class="summary-card critical">
-                <div class="summary-count">{severity_counts['critical']}</div>
-                <div class="summary-label">Critical</div>
-            </div>
-            <div class="summary-card high">
-                <div class="summary-count">{severity_counts['high']}</div>
-                <div class="summary-label">High</div>
-            </div>
-            <div class="summary-card medium">
-                <div class="summary-count">{severity_counts['medium']}</div>
-                <div class="summary-label">Medium</div>
-            </div>
-            <div class="summary-card low">
-                <div class="summary-count">{severity_counts['low']}</div>
-                <div class="summary-label">Low</div>
-            </div>
-            <div class="summary-card info">
-                <div class="summary-count">{severity_counts['info']}</div>
-                <div class="summary-label">Info</div>
-            </div>
-        </div>
-        
-        <div class="findings-title-bar">
-            <h2 class="findings-title">Vulnerabilities Details</h2>
-            <div class="findings-count">Showing {total_count} active findings</div>
-        </div>
-"""
-        if not findings:
-            html_content += """
-        <div class="no-findings">
-            <h3>No active findings found</h3>
-            <p>Your codebase is clean!</p>
-        </div>
-"""
-        else:
-            for idx, f in enumerate(findings, 1):
-                sev_key = str(f.severity.value).lower() if hasattr(f.severity, "value") else str(f.severity).lower()
-                sev_label = str(f.severity.value).upper() if hasattr(f.severity, "value") else str(f.severity).upper()
-                html_content += f"""
-        <div class="finding-card {sev_key}">
-            <div class="finding-header">
-                <h3 class="finding-title">#{idx}. {f.title}</h3>
-                <span class="badge {sev_key}">{sev_label}</span>
-            </div>
-            
-            <div class="finding-meta">
-"""
-                if f.rule_id:
-                    html_content += f"""
-                <div class="finding-meta-item">
-                    <span><strong>Rule:</strong> {f.rule_id}</span>
-                </div>
-"""
-                if f.cve_id:
-                    cvss_part = f" (CVSS: {f.cvss_score})" if f.cvss_score else ""
-                    html_content += f"""
-                <div class="finding-meta-item">
-                    <span><strong>CVE:</strong> {f.cve_id}{cvss_part}</span>
-                </div>
-"""
-                if f.package_name:
-                    html_content += f"""
-                <div class="finding-meta-item">
-                    <span><strong>Package:</strong> {f.package_name}@{f.package_version}</span>
-                </div>
-"""
-                if f.file_path:
-                    loc = f.file_path
-                    if f.line_start:
-                        loc += f":{f.line_start}"
-                    html_content += f"""
-                <div class="finding-meta-item">
-                    <span><strong>File:</strong> {loc}</span>
-                </div>
-"""
-                html_content += f"""
-            </div>
-            
-            <div class="finding-description">
-                {f.description or 'No description provided.'}
-            </div>
-"""
-                if f.code_snippet:
-                    html_content += f"""
-            <div class="code-block">
-                <span class="code-line">{f.code_snippet}</span>
-            </div>
-"""
-                if f.fixed_version:
-                    html_content += f"""
-            <div class="fix-box">
-                <div class="fix-title">Recommended Fix</div>
-                Upgrade <code>{f.package_name}</code> from <code>{f.package_version}</code> to <code>{f.fixed_version}</code>.
-            </div>
-"""
-                html_content += """
-        </div>
-"""
-        html_content += """
-    </div>
-</body>
-</html>
-"""
-        filename = f"sca_report_{project_name.lower().replace(' ', '_')}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
+        content = _render_html_report(findings, project_name, repo_url, branch, now_str, severity_counts, total_count)
         return Response(
-            content=html_content,
-            media_type="text/html",
-            headers={"Content-Disposition": f"attachment; filename={filename}"}
+            content=content, media_type="text/html",
+            headers={"Content-Disposition": f"attachment; filename=sca_report_{safe_project}_{ts_str}.html"},
         )
-
     elif format == "json":
-        import json
-        findings_dicts = []
-        for f in findings:
-            findings_dicts.append({
-                "id": f.id,
-                "scan_id": f.scan_id,
+        findings_dicts = [
+            {
+                "id": f.id, "scan_id": f.scan_id,
                 "severity": f.severity.value if hasattr(f.severity, "value") else str(f.severity),
-                "title": f.title,
-                "description": f.description,
-                "file_path": f.file_path,
-                "line_start": f.line_start,
-                "line_end": f.line_end,
-                "code_snippet": f.code_snippet,
-                "rule_id": f.rule_id,
-                "cve_id": f.cve_id,
-                "cvss_score": f.cvss_score,
-                "package_name": f.package_name,
-                "package_version": f.package_version,
-                "fixed_version": f.fixed_version,
-                "detector_type": f.detector_type,
+                "title": f.title, "description": f.description,
+                "file_path": f.file_path, "line_start": f.line_start, "line_end": f.line_end,
+                "code_snippet": f.code_snippet, "rule_id": f.rule_id,
+                "cve_id": f.cve_id, "cvss_score": f.cvss_score,
+                "package_name": f.package_name, "package_version": f.package_version,
+                "fixed_version": f.fixed_version, "detector_type": f.detector_type,
                 "verified": f.verified,
                 "created_at": f.created_at.isoformat() if hasattr(f.created_at, "isoformat") else str(f.created_at),
-            })
-            
+            }
+            for f in findings
+        ]
+
         json_content = json.dumps({
-            "project_name": project_name,
-            "repo_url": repo_url,
-            "branch": branch,
-            "exported_at": now_str,
-            "summary": severity_counts,
-            "findings": findings_dicts
+            "project_name": project_name, "repo_url": repo_url, "branch": branch,
+            "exported_at": now_str, "summary": severity_counts, "findings": findings_dicts,
         }, indent=2)
-        
-        filename = f"sca_report_{project_name.lower().replace(' ', '_')}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         return Response(
-            content=json_content,
-            media_type="application/json",
-            headers={"Content-Disposition": f"attachment; filename={filename}"}
+            content=json_content, media_type="application/json",
+            headers={"Content-Disposition": f"attachment; filename=sca_report_{safe_project}_{ts_str}.json"},
         )
 
 
@@ -733,32 +295,10 @@ async def get_finding(
     """Get a single finding by ID."""
     result = await db.execute(select(Finding).where(Finding.id == finding_id))
     finding = result.scalar_one_or_none()
-
     if not finding:
         raise HTTPException(status_code=404, detail="Finding not found")
+    return _build_finding_response(finding)
 
-    return FindingResponse(
-        id=finding.id,
-        scan_id=finding.scan_id,
-        severity=finding.severity,
-        title=finding.title,
-        description=finding.description,
-        file_path=finding.file_path,
-        line_start=finding.line_start,
-        line_end=finding.line_end,
-        code_snippet=finding.code_snippet,
-        rule_id=finding.rule_id,
-        cve_id=finding.cve_id,
-        cvss_score=finding.cvss_score,
-        package_name=finding.package_name,
-        package_version=finding.package_version,
-        fixed_version=finding.fixed_version,
-        detector_type=finding.detector_type,
-        verified=finding.verified,
-        metadata_json=finding.metadata_json,
-        status=finding.status,
-        created_at=finding.created_at,
-    )
 
 @router.put("/{finding_id}/status", response_model=FindingResponse)
 async def update_finding_status(
@@ -773,36 +313,232 @@ async def update_finding_status(
 
     result = await db.execute(select(Finding).where(Finding.id == finding_id))
     finding = result.scalar_one_or_none()
-
     if not finding:
         raise HTTPException(status_code=404, detail="Finding not found")
 
     finding.status = status_update.status
     await db.commit()
     await db.refresh(finding)
-    
-    # Invalidate cache for findings and dashboard since status changed
     await clear_all_api_caches()
 
-    return FindingResponse(
-        id=finding.id,
-        scan_id=finding.scan_id,
-        severity=finding.severity,
-        title=finding.title,
-        description=finding.description,
-        file_path=finding.file_path,
-        line_start=finding.line_start,
-        line_end=finding.line_end,
-        code_snippet=finding.code_snippet,
-        rule_id=finding.rule_id,
-        cve_id=finding.cve_id,
-        cvss_score=finding.cvss_score,
-        package_name=finding.package_name,
-        package_version=finding.package_version,
-        fixed_version=finding.fixed_version,
-        detector_type=finding.detector_type,
-        verified=finding.verified,
-        metadata_json=finding.metadata_json,
-        status=finding.status,
-        created_at=finding.created_at,
-    )
+    return _build_finding_response(finding)
+
+
+# ──────────────────────────────────────────────────────────────
+# Report rendering helpers
+# ──────────────────────────────────────────────────────────────
+
+def _render_markdown_report(findings, project_name, repo_url, branch, now_str, severity_counts, total_count) -> str:
+    """Render findings as a Markdown report."""
+    md = f"# Security Scan Report: {project_name}\n"
+    md += f"- **Export Date:** {now_str}\n"
+    md += f"- **Repository:** {repo_url}\n"
+    md += f"- **Branch:** {branch}\n\n"
+
+    md += "## Summary\n"
+    for sev in ("critical", "high", "medium", "low", "info"):
+        md += f"- **{sev.capitalize()}:** {severity_counts[sev]}\n"
+    md += f"- **Total Findings:** {total_count}\n\n"
+
+    md += "## Findings Details\n\n"
+
+    if not findings:
+        md += "*No active findings found.*\n"
+        return md
+
+    for idx, f in enumerate(findings, 1):
+        sev_label = _get_severity_label(f)
+        md += f"### {idx}. [{sev_label}] {f.title}\n"
+        md += f"- **Severity:** {sev_label}\n"
+        if f.rule_id:
+            md += f"- **Rule ID:** `{f.rule_id}`\n"
+        if f.cve_id:
+            md += f"- **CVE ID:** `{f.cve_id}`"
+            if f.cvss_score:
+                md += f" (CVSS: {f.cvss_score})"
+            md += "\n"
+        if f.package_name:
+            md += f"- **Package:** `{f.package_name}@{f.package_version}`"
+            if f.fixed_version:
+                md += f" (Fixed in: `{f.fixed_version}`)"
+            md += "\n"
+        if f.file_path:
+            location = f.file_path
+            if f.line_start:
+                location += f":{f.line_start}"
+            md += f"- **File Location:** `{location}`\n"
+
+        md += f"\n**Description:**\n{f.description or 'No description provided.'}\n\n"
+
+        if f.code_snippet:
+            lang = "code"
+            if f.file_path:
+                ext = f.file_path.split(".")[-1].lower()
+                if ext in ["py", "go", "js", "ts", "tsx", "jsx", "java", "sh", "yml", "yaml", "json"]:
+                    lang = ext
+            md += f"**Code Snippet:**\n```{lang}\n{f.code_snippet}\n```\n\n"
+
+        if f.fixed_version:
+            md += f"**Recommended Fix:**\n"
+            md += f"Upgrade `{f.package_name}` from `{f.package_version}` to `{f.fixed_version}`.\n\n"
+
+        md += "---\n\n"
+
+    return md
+
+
+def _render_html_report(findings, project_name, repo_url, branch, now_str, severity_counts, total_count) -> str:
+    """Render findings as a styled HTML report."""
+    # CSS styles
+    css = """
+        :root {
+            --bg-primary: #0b0f19; --bg-secondary: #111827; --bg-tertiary: #1f2937;
+            --text-primary: #f1f5f9; --text-secondary: #cbd5e1; --text-muted: #94a3b8;
+            --border-color: rgba(71, 85, 105, 0.2);
+            --critical: #ef4444; --high: #f97316; --medium: #eab308; --low: #3b82f6; --info: #6b7280;
+        }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+               background-color: var(--bg-primary); color: var(--text-primary); margin: 0; padding: 40px 20px; line-height: 1.5; }
+        .container { max-width: 1000px; margin: 0 auto; }
+        .header { border-bottom: 1px solid var(--border-color); padding-bottom: 24px; margin-bottom: 32px; }
+        h1 { font-size: 28px; font-weight: 700; margin: 0 0 8px 0; }
+        .meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-top: 16px; }
+        .meta-item { font-size: 14px; color: var(--text-muted); }
+        .meta-item strong { color: var(--text-secondary); }
+        .summary-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; margin-bottom: 40px; }
+        @media (max-width: 640px) { .summary-grid { grid-template-columns: repeat(2, 1fr); } }
+        .summary-card { background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 10px;
+                        padding: 20px 16px; text-align: center; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
+        .summary-card.critical { border-left: 4px solid var(--critical); }
+        .summary-card.high { border-left: 4px solid var(--high); }
+        .summary-card.medium { border-left: 4px solid var(--medium); }
+        .summary-card.low { border-left: 4px solid var(--low); }
+        .summary-card.info { border-left: 4px solid var(--info); }
+        .summary-count { font-size: 32px; font-weight: 700; line-height: 1; margin-bottom: 6px; }
+        .summary-card.critical .summary-count { color: var(--critical); }
+        .summary-card.high .summary-count { color: var(--high); }
+        .summary-card.medium .summary-count { color: var(--medium); }
+        .summary-card.low .summary-count { color: var(--low); }
+        .summary-card.info .summary-count { color: var(--info); }
+        .summary-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+        .findings-title-bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;
+                              border-bottom: 1px solid var(--border-color); padding-bottom: 12px; }
+        .findings-title { font-size: 20px; font-weight: 600; margin: 0; }
+        .findings-count { font-size: 14px; color: var(--text-muted); }
+        .finding-card { background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 12px;
+                        padding: 24px; margin-bottom: 20px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); }
+        .finding-card.critical { border-left: 4px solid var(--critical); }
+        .finding-card.high { border-left: 4px solid var(--high); }
+        .finding-card.medium { border-left: 4px solid var(--medium); }
+        .finding-card.low { border-left: 4px solid var(--low); }
+        .finding-card.info { border-left: 4px solid var(--info); }
+        .finding-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+        .finding-title { font-size: 16px; font-weight: 600; margin: 0; color: #ffffff; line-height: 1.4; }
+        .badge { display: inline-block; font-size: 10px; font-weight: 700; padding: 4px 8px; border-radius: 6px;
+                 text-transform: uppercase; letter-spacing: 0.02em; }
+        .badge.critical { background: rgba(239, 68, 68, 0.12); color: var(--critical); border: 1px solid rgba(239, 68, 68, 0.2); }
+        .badge.high { background: rgba(249, 115, 22, 0.12); color: var(--high); border: 1px solid rgba(249, 115, 22, 0.2); }
+        .badge.medium { background: rgba(234, 179, 8, 0.12); color: var(--medium); border: 1px solid rgba(234, 179, 8, 0.2); }
+        .badge.low { background: rgba(59, 130, 246, 0.12); color: var(--low); border: 1px solid rgba(59, 130, 246, 0.2); }
+        .badge.info { background: rgba(107, 114, 128, 0.12); color: var(--info); border: 1px solid rgba(107, 114, 128, 0.2); }
+        .finding-meta { display: flex; flex-wrap: wrap; gap: 16px; font-size: 13px; color: var(--text-muted);
+                        margin-bottom: 16px; border-bottom: 1px dashed var(--border-color); padding-bottom: 12px; }
+        .finding-meta-item { display: flex; align-items: center; gap: 6px; }
+        .finding-description { font-size: 14px; color: var(--text-secondary); line-height: 1.6; margin-bottom: 16px; }
+        .code-block { background: #030712; border: 1px solid var(--border-color); border-radius: 8px; padding: 16px;
+                      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+                      font-size: 13px; overflow-x: auto; color: #e2e8f0; margin-bottom: 16px; }
+        .code-line { color: #ef4444; }
+        .fix-box { background: rgba(16, 185, 129, 0.06); border: 1px solid rgba(16, 185, 129, 0.15);
+                   border-radius: 8px; padding: 14px 16px; font-size: 13px; color: var(--text-secondary); }
+        .fix-title { font-weight: 700; color: #10b981; margin-bottom: 4px; text-transform: uppercase;
+                     font-size: 11px; letter-spacing: 0.05em; }
+        .no-findings { text-align: center; padding: 48px; color: var(--text-muted); background: var(--bg-secondary);
+                       border: 1px solid var(--border-color); border-radius: 12px; }
+    """
+
+    # Build summary cards
+    summary_cards = ""
+    for sev in ("critical", "high", "medium", "low", "info"):
+        summary_cards += f"""
+            <div class="summary-card {sev}">
+                <div class="summary-count">{severity_counts[sev]}</div>
+                <div class="summary-label">{sev.capitalize()}</div>
+            </div>"""
+
+    # Build finding cards
+    finding_cards = ""
+    if not findings:
+        finding_cards = """
+        <div class="no-findings">
+            <h3>No active findings found</h3>
+            <p>Your codebase is clean!</p>
+        </div>"""
+    else:
+        for idx, f in enumerate(findings, 1):
+            sev_key = _get_severity_key(f)
+            sev_label = _get_severity_label(f)
+
+            meta_items = ""
+            if f.rule_id:
+                meta_items += f'<div class="finding-meta-item"><span><strong>Rule:</strong> {f.rule_id}</span></div>\n'
+            if f.cve_id:
+                cvss_part = f" (CVSS: {f.cvss_score})" if f.cvss_score else ""
+                meta_items += f'<div class="finding-meta-item"><span><strong>CVE:</strong> {f.cve_id}{cvss_part}</span></div>\n'
+            if f.package_name:
+                meta_items += f'<div class="finding-meta-item"><span><strong>Package:</strong> {f.package_name}@{f.package_version}</span></div>\n'
+            if f.file_path:
+                loc = f.file_path + (f":{f.line_start}" if f.line_start else "")
+                meta_items += f'<div class="finding-meta-item"><span><strong>File:</strong> {loc}</span></div>\n'
+
+            code_block = ""
+            if f.code_snippet:
+                code_block = f'<div class="code-block"><span class="code-line">{f.code_snippet}</span></div>\n'
+
+            fix_block = ""
+            if f.fixed_version:
+                fix_block = f"""
+            <div class="fix-box">
+                <div class="fix-title">Recommended Fix</div>
+                Upgrade <code>{f.package_name}</code> from <code>{f.package_version}</code> to <code>{f.fixed_version}</code>.
+            </div>"""
+
+            finding_cards += f"""
+        <div class="finding-card {sev_key}">
+            <div class="finding-header">
+                <h3 class="finding-title">#{idx}. {f.title}</h3>
+                <span class="badge {sev_key}">{sev_label}</span>
+            </div>
+            <div class="finding-meta">{meta_items}</div>
+            <div class="finding-description">{f.description or 'No description provided.'}</div>
+            {code_block}{fix_block}
+        </div>"""
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SCA Security Report - {project_name}</title>
+    <style>{css}</style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Security Scan Report</h1>
+            <div class="meta-grid">
+                <div class="meta-item">Project: <strong>{project_name}</strong></div>
+                <div class="meta-item">Exported At: <strong>{now_str}</strong></div>
+                <div class="meta-item">Repository: <strong>{repo_url}</strong></div>
+                <div class="meta-item">Branch: <strong>{branch}</strong></div>
+            </div>
+        </div>
+        <div class="summary-grid">{summary_cards}</div>
+        <div class="findings-title-bar">
+            <h2 class="findings-title">Vulnerabilities Details</h2>
+            <div class="findings-count">Showing {total_count} active findings</div>
+        </div>
+        {finding_cards}
+    </div>
+</body>
+</html>"""

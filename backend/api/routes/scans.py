@@ -1,13 +1,18 @@
 """Scan management API routes."""
 
+import logging
+import re
 import subprocess
 import uuid
 import shutil
 import zipfile
 from pathlib import Path
+
+import aiofiles
 from fastapi import APIRouter, Depends, HTTPException, Query, File, UploadFile, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc
+
 from db.session import get_db
 from models.project import Project
 from models.scan import Scan, ScanType, ScanStatus
@@ -18,8 +23,14 @@ from api.deps import get_current_active_user, require_analyst
 from config import settings
 from core.cache import clear_all_api_caches
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
+
+# ──────────────────────────────────────────────────────────────
+# Shared helpers (extracted from 5+ copy-paste occurrences)
+# ──────────────────────────────────────────────────────────────
 
 def _build_summary(findings_counts: dict) -> ScanSummary:
     """Build a scan summary from finding severity counts."""
@@ -30,6 +41,27 @@ def _build_summary(findings_counts: dict) -> ScanSummary:
         medium=findings_counts.get(Severity.MEDIUM, 0),
         low=findings_counts.get(Severity.LOW, 0),
         info=findings_counts.get(Severity.INFO, 0),
+    )
+
+
+def _build_scan_response(scan: Scan, project_name: str | None = None, summary=None) -> ScanResponse:
+    """Build a ScanResponse DTO from a Scan ORM object."""
+    return ScanResponse(
+        id=scan.id,
+        project_id=scan.project_id,
+        project_name=project_name,
+        scan_type=scan.scan_type,
+        status=scan.status,
+        progress=scan.progress or 0,
+        progress_message=scan.progress_message,
+        celery_task_id=scan.celery_task_id,
+        started_at=scan.started_at,
+        completed_at=scan.completed_at,
+        duration_seconds=scan.duration_seconds,
+        error_message=scan.error_message,
+        summary=summary,
+        findings_diff=getattr(scan, "findings_diff", None),
+        created_at=scan.created_at,
     )
 
 
@@ -49,25 +81,89 @@ async def _enrich_scan(db: AsyncSession, scan: Scan) -> ScanResponse:
     findings_counts = dict(severity_result.all())
 
     summary = _build_summary(findings_counts) if findings_counts else scan.summary
+    return _build_scan_response(scan, project_name, summary)
 
-    return ScanResponse(
-        id=scan.id,
-        project_id=scan.project_id,
-        project_name=project_name,
-        scan_type=scan.scan_type,
-        status=scan.status,
-        progress=scan.progress,
-        progress_message=scan.progress_message,
-        celery_task_id=scan.celery_task_id,
-        started_at=scan.started_at,
-        completed_at=scan.completed_at,
-        duration_seconds=scan.duration_seconds,
-        error_message=scan.error_message,
-        summary=summary,
-        findings_diff=scan.findings_diff,
-        created_at=scan.created_at,
+
+async def _find_or_create_project(
+    db: AsyncSession,
+    project_id: str | None,
+    identifier: str,
+    repo_url_prefix: str,
+    description: str,
+) -> Project:
+    """Find existing project or create a new one. Handles fuzzy matching for local:// uploads."""
+    # Case 1: explicit project_id provided
+    if project_id and project_id.strip():
+        result = await db.execute(select(Project).where(Project.id == project_id.strip()))
+        project = result.scalars().first()
+        if not project:
+            raise HTTPException(status_code=404, detail="Specified project not found")
+        return project
+
+    # Case 2: try exact match by repo_url
+    repo_url = f"{repo_url_prefix}{identifier}"
+    result = await db.execute(select(Project).where(Project.repo_url == repo_url))
+    project = result.scalars().first()
+    if project:
+        return project
+
+    # Case 3: fuzzy match for local:// projects (e.g. same base name, different date stamp)
+    if repo_url_prefix == "local://":
+        clean_filename = identifier.rsplit(".", 1)[0]
+        base_prefix = re.sub(
+            r'[_.-]?(?:fix|v\d+|\d{8}|\d{6}).*$', '', clean_filename, flags=re.IGNORECASE
+        ).strip()
+
+        if base_prefix and len(base_prefix) >= 3:
+            all_local = (
+                await db.execute(select(Project).where(Project.repo_url.like("local://%")))
+            ).scalars().all()
+
+            for p in all_local:
+                p_clean = p.name.replace("Local: ", "").strip()
+                p_base = re.sub(
+                    r'[_.-]?(?:fix|v\d+|\d{8}|\d{6}).*$', '', p_clean, flags=re.IGNORECASE
+                ).strip()
+                if p_base and (
+                    p_base.lower() == base_prefix.lower()
+                    or p_clean.lower().startswith(base_prefix.lower())
+                ):
+                    logger.info(f"Matched uploaded ZIP '{identifier}' to existing project '{p.name}' (ID: {p.id})")
+                    return p
+
+    # Case 4: create new project
+    if repo_url_prefix == "folder://":
+        project_name = f"Folder: {Path(identifier).name or identifier}"
+    else:
+        project_name = identifier.rsplit(".", 1)[0] if "." in identifier else identifier
+
+    project = Project(
+        name=project_name,
+        repo_url=repo_url,
+        description=description,
+        branch="local",
     )
+    db.add(project)
+    await db.flush()
+    await db.refresh(project)
+    return project
 
+
+async def _dispatch_celery_task(db: AsyncSession, scan: Scan, task_fn, *task_args):
+    """Commit scan to DB then dispatch Celery task."""
+    await db.commit()
+    try:
+        task = task_fn.delay(*task_args)
+        scan.celery_task_id = task.id
+        db.add(scan)
+    except Exception:
+        pass
+    await db.commit()
+
+
+# ──────────────────────────────────────────────────────────────
+# API Routes
+# ──────────────────────────────────────────────────────────────
 
 @router.get("", response_model=ScanListResponse)
 async def list_scans(
@@ -111,9 +207,7 @@ async def create_scan(
     current_user: User = Depends(require_analyst),
 ):
     """Trigger new scan(s) for a project."""
-    result = await db.execute(
-        select(Project).where(Project.id == data.project_id)
-    )
+    result = await db.execute(select(Project).where(Project.id == data.project_id))
     project = result.scalar_one_or_none()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -124,48 +218,15 @@ async def create_scan(
             detail="Cannot run standard git scans on local upload or local folder projects. Please use the appropriate tab to start a new scan."
         )
 
-    # We ignore the individual scan_types requested and always run a combined scan
-    scan = Scan(
-        project_id=data.project_id,
-        scan_type=ScanType.COMBINED,
-        status=ScanStatus.PENDING,
-    )
+    scan = Scan(project_id=data.project_id, scan_type=ScanType.COMBINED, status=ScanStatus.PENDING)
     db.add(scan)
     await db.flush()
     await db.refresh(scan)
 
-    # Commit first so the worker can query the Scan records
-    await db.commit()
+    from workers.tasks import run_scan as run_scan_task
+    await _dispatch_celery_task(db, scan, run_scan_task, scan.id, ScanType.COMBINED.value)
 
-    try:
-        from workers.tasks import run_scan
-        task = run_scan.delay(scan.id, ScanType.COMBINED.value)
-        scan.celery_task_id = task.id
-        db.add(scan)
-    except Exception:
-        pass
-
-    # Commit updates to celery_task_ids
-    await db.commit()
-
-    return [
-        ScanResponse(
-            id=scan.id,
-            project_id=scan.project_id,
-            project_name=project.name,
-            scan_type=scan.scan_type,
-            status=scan.status,
-            progress=0,
-            progress_message=None,
-            celery_task_id=scan.celery_task_id,
-            started_at=scan.started_at,
-            completed_at=scan.completed_at,
-            duration_seconds=scan.duration_seconds,
-            error_message=scan.error_message,
-            summary=None,
-            created_at=scan.created_at,
-        )
-    ]
+    return [_build_scan_response(scan, project.name)]
 
 
 @router.post("/local", response_model=list[ScanResponse], status_code=201)
@@ -188,7 +249,6 @@ async def create_local_scan(
         scan_types = ScanType.COMBINED.value
 
     is_zip = filename_lower.endswith('.zip')
-    is_rar = filename_lower.endswith('.rar')
 
     try:
         types = [ScanType(t.strip()) for t in scan_types.split(",") if t.strip()]
@@ -197,98 +257,46 @@ async def create_local_scan(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Invalid scan type: {e}")
 
-    # Save uploaded archive to a temporary file preserving its extension
+    # Save uploaded archive
     suffix = Path(file.filename).suffix.lower() or ".zip"
     temp_archive_id = str(uuid.uuid4())
     temp_archive_path = Path(settings.SCAN_WORKSPACE_DIR) / f"temp_{temp_archive_id}{suffix}"
     Path(settings.SCAN_WORKSPACE_DIR).mkdir(parents=True, exist_ok=True)
 
     try:
-        import aiofiles
         async with aiofiles.open(temp_archive_path, "wb") as f:
-            while chunk := await file.read(1024 * 1024):  # 1MB chunks
+            while chunk := await file.read(1024 * 1024):
                 await f.write(chunk)
     except Exception as e:
         if temp_archive_path.exists():
             temp_archive_path.unlink()
         raise HTTPException(status_code=500, detail=f"Failed to save upload: {e}")
 
-    # Validate archive format once
-    if is_zip:
-        if not zipfile.is_zipfile(temp_archive_path):
+    if is_zip and not zipfile.is_zipfile(temp_archive_path):
+        temp_archive_path.unlink()
+        raise HTTPException(status_code=400, detail="Invalid ZIP file structure")
+
+    # Find or create project
+    try:
+        project = await _find_or_create_project(db, project_id, file.filename, "local://", "Uploaded via local scan")
+    except HTTPException:
+        if temp_archive_path.exists():
             temp_archive_path.unlink()
-            raise HTTPException(status_code=400, detail="Invalid ZIP file structure")
+        raise
 
-    if project_id and project_id.strip():
-        project_q = select(Project).where(Project.id == project_id.strip())
-        project_result = await db.execute(project_q)
-        project = project_result.scalars().first()
-        if not project:
-            if temp_archive_path.exists():
-                temp_archive_path.unlink()
-            raise HTTPException(status_code=404, detail="Specified project not found")
-        project_name = project.name
-    else:
-        # Reuse existing project if same repo_url or similar project base prefix
-        repo_url = f"local://{file.filename}"
-        project_q = select(Project).where(Project.repo_url == repo_url)
-        project_result = await db.execute(project_q)
-        project = project_result.scalars().first()
-        
-        if not project:
-            import re
-            clean_filename = file.filename.rsplit('.', 1)[0]
-            # Strip date stamps like 20260619, version tags like v1/v2, or fix suffixes
-            base_prefix = re.sub(r'[_.-]?(?:fix|v\d+|\d{8}|\d{6}).*$', '', clean_filename, flags=re.IGNORECASE).strip()
-            
-            if base_prefix and len(base_prefix) >= 3:
-                all_local_projects = (await db.execute(
-                    select(Project).where(Project.repo_url.like("local://%"))
-                )).scalars().all()
-
-                for p in all_local_projects:
-                    p_clean = p.name.replace("Local: ", "").strip()
-                    p_base = re.sub(r'[_.-]?(?:fix|v\d+|\d{8}|\d{6}).*$', '', p_clean, flags=re.IGNORECASE).strip()
-                    if p_base and (p_base.lower() == base_prefix.lower() or p_clean.lower().startswith(base_prefix.lower())):
-                        project = p
-                        project_name = p.name
-                        logger.info(f"Matched uploaded ZIP '{file.filename}' to existing project '{p.name}' (ID: {p.id})")
-                        break
-
-        if not project:
-            clean_filename = file.filename.rsplit('.', 1)[0]
-            project_name = clean_filename
-            project = Project(
-                name=project_name,
-                repo_url=repo_url,
-                description="Uploaded via local scan",
-                branch="local",
-            )
-            db.add(project)
-            await db.flush()
-            await db.refresh(project)
-        else:
-            project_name = project.name
-
-    scans_data = []
+    # Create scan record
     scan = Scan(
-        project_id=project.id,
-        scan_type=ScanType.COMBINED,
-        status=ScanStatus.PENDING,
-        summary={"filename": file.filename},
+        project_id=project.id, scan_type=ScanType.COMBINED,
+        status=ScanStatus.PENDING, summary={"filename": file.filename},
     )
     db.add(scan)
     await db.flush()
     await db.refresh(scan)
-
-    # Commit now so worker can see the Scan and Project records
     await db.commit()
 
-    # Now extract files and dispatch Celery tasks
+    # Extract archive
     project_workspace_dir = Path(settings.SCAN_WORKSPACE_DIR) / "projects" / project.id
     project_src_dir = project_workspace_dir / "src"
-
-    # Clean existing directory to ensure fresh code
     if project_src_dir.exists():
         shutil.rmtree(project_src_dir)
     project_src_dir.mkdir(parents=True, exist_ok=True)
@@ -306,20 +314,17 @@ async def create_local_scan(
             if shutil.which("unrar"):
                 result = subprocess.run(
                     ["unrar", "x", "-y", str(temp_archive_path), str(extract_dir)],
-                    capture_output=True,
-                    text=True,
+                    capture_output=True, text=True,
                 )
                 if result.returncode != 0:
                     result = subprocess.run(
                         ["unar", "-q", "-o", str(extract_dir), str(temp_archive_path)],
-                        capture_output=True,
-                        text=True,
+                        capture_output=True, text=True,
                     )
             else:
                 result = subprocess.run(
                     ["unar", "-q", "-o", str(extract_dir), str(temp_archive_path)],
-                    capture_output=True,
-                    text=True,
+                    capture_output=True, text=True,
                 )
             if result.returncode != 0:
                 raise RuntimeError(result.stderr or result.stdout or "RAR extraction failed")
@@ -337,41 +342,14 @@ async def create_local_scan(
             temp_archive_path.unlink()
         raise HTTPException(status_code=500, detail=f"Failed to extract archive: {e}")
 
-    try:
-        from workers.tasks import run_local_scan
-        task = run_local_scan.delay(
-            scan.id, ScanType.COMBINED.value, str(project_src_dir)
-        )
-        scan.celery_task_id = task.id
-        db.add(scan)
-    except Exception:
-        pass
+    # Dispatch task
+    from workers.tasks import run_local_scan
+    await _dispatch_celery_task(db, scan, run_local_scan, scan.id, ScanType.COMBINED.value, str(project_src_dir))
 
-    # Commit updates to celery_task_ids
-    await db.commit()
-
-    # Clean up the temporary archive file
     if temp_archive_path.exists():
         temp_archive_path.unlink()
 
-    return [
-        ScanResponse(
-            id=scan.id,
-            project_id=scan.project_id,
-            project_name=project_name,
-            scan_type=scan.scan_type,
-            status=scan.status,
-            progress=0,
-            progress_message=None,
-            celery_task_id=scan.celery_task_id,
-            started_at=scan.started_at,
-            completed_at=scan.completed_at,
-            duration_seconds=scan.duration_seconds,
-            error_message=scan.error_message,
-            summary=None,
-            created_at=scan.created_at,
-        )
-    ]
+    return [_build_scan_response(scan, project.name)]
 
 
 @router.post('/local-folder', response_model=list[ScanResponse], status_code=201)
@@ -396,7 +374,7 @@ async def create_local_folder_scan(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Invalid scan type: {e}")
 
-    # Determine a stable folder name from the first uploaded relative path
+    # Determine root folder name
     first_path = getattr(files[0], 'filename', '')
     if not first_path:
         raise HTTPException(status_code=400, detail="Uploaded files must include a relative path")
@@ -405,44 +383,18 @@ async def create_local_folder_scan(
     root_folder_name = normalized_first.split('/')[0] or 'uploaded-folder'
     folder_label = root_folder_name
 
-    if project_id and project_id.strip():
-        project_q = select(Project).where(Project.id == project_id.strip())
-        project_result = await db.execute(project_q)
-        project = project_result.scalars().first()
-        if not project:
-            raise HTTPException(status_code=404, detail="Specified project not found")
-        project_name = project.name
-    else:
-        repo_url = f"local-folder://{folder_label}"
-        project_q = select(Project).where(Project.repo_url == repo_url)
-        project_result = await db.execute(project_q)
-        project = project_result.scalars().first()
-
-        if not project:
-            project_name = folder_label
-            project = Project(
-                name=project_name,
-                repo_url=repo_url,
-                description="Uploaded folder scan",
-                branch="local",
-            )
-            db.add(project)
-            await db.flush()
-            await db.refresh(project)
-        else:
-            project_name = project.name
+    project = await _find_or_create_project(db, project_id, folder_label, "local-folder://", "Uploaded folder scan")
 
     scan = Scan(
-        project_id=project.id,
-        scan_type=ScanType.COMBINED,
-        status=ScanStatus.PENDING,
-        summary={"filename": folder_label},
+        project_id=project.id, scan_type=ScanType.COMBINED,
+        status=ScanStatus.PENDING, summary={"filename": folder_label},
     )
     db.add(scan)
     await db.flush()
     await db.refresh(scan)
     await db.commit()
 
+    # Save uploaded files
     project_workspace_dir = Path(settings.SCAN_WORKSPACE_DIR) / "projects" / project.id
     project_src_dir = project_workspace_dir / "src"
     if project_src_dir.exists():
@@ -457,7 +409,6 @@ async def create_local_folder_scan(
             rel_path = Path(raw_path.replace('\\', '/')).relative_to(root_folder_name)
             dest_path = project_src_dir / rel_path
             dest_path.parent.mkdir(parents=True, exist_ok=True)
-            import aiofiles
             async with aiofiles.open(dest_path, 'wb') as out_file:
                 while chunk := await upload_file.read(1024 * 1024):
                     await out_file.write(chunk)
@@ -465,34 +416,10 @@ async def create_local_folder_scan(
         shutil.rmtree(project_workspace_dir, ignore_errors=True)
         raise HTTPException(status_code=500, detail=f"Failed to save uploaded folder files: {e}")
 
-    try:
-        from workers.tasks import run_local_scan
-        task = run_local_scan.delay(scan.id, ScanType.COMBINED.value, str(project_src_dir))
-        scan.celery_task_id = task.id
-        db.add(scan)
-    except Exception:
-        pass
+    from workers.tasks import run_local_scan
+    await _dispatch_celery_task(db, scan, run_local_scan, scan.id, ScanType.COMBINED.value, str(project_src_dir))
 
-    await db.commit()
-
-    return [
-        ScanResponse(
-            id=scan.id,
-            project_id=scan.project_id,
-            project_name=project_name,
-            scan_type=scan.scan_type,
-            status=scan.status,
-            progress=0,
-            progress_message=None,
-            celery_task_id=scan.celery_task_id,
-            started_at=scan.started_at,
-            completed_at=scan.completed_at,
-            duration_seconds=scan.duration_seconds,
-            error_message=scan.error_message,
-            summary=None,
-            created_at=scan.created_at,
-        )
-    ]
+    return [_build_scan_response(scan, project.name)]
 
 
 @router.post("/folder", response_model=list[ScanResponse], status_code=201)
@@ -503,87 +430,23 @@ async def create_folder_scan(
 ):
     """Scan a local folder path directly from the host filesystem."""
     path_str = data.folder_path.strip()
-    
-    # Normalize the path string to POSIX format with resolved paths to prevent duplicates
+
     try:
         path_str = str(Path(path_str).resolve().as_posix())
     except Exception:
         path_str = path_str.replace("\\", "/").strip()
 
-    if data.project_id and data.project_id.strip():
-        project_q = select(Project).where(Project.id == data.project_id.strip())
-        project_result = await db.execute(project_q)
-        project = project_result.scalars().first()
-        if not project:
-            raise HTTPException(status_code=404, detail="Specified project not found")
-        project_name = project.name
-    else:
-        # Reuse existing project if same repo_url
-        repo_url = f"folder://{path_str}"
-        project_q = select(Project).where(Project.repo_url == repo_url)
-        project_result = await db.execute(project_q)
-        project = project_result.scalars().first()
-        
-        if not project:
-            path_obj = Path(path_str)
-            project_name = f"Folder: {path_obj.name or path_str}"
-            
-            project = Project(
-                name=project_name,
-                repo_url=repo_url,
-                description="Local folder scan",
-                branch="local",
-            )
-            db.add(project)
-            await db.flush()
-            await db.refresh(project)
-        else:
-            project_name = project.name
+    project = await _find_or_create_project(db, data.project_id, path_str, "folder://", "Local folder scan")
 
-    scan = Scan(
-        project_id=project.id,
-        scan_type=ScanType.COMBINED,
-        status=ScanStatus.PENDING,
-    )
+    scan = Scan(project_id=project.id, scan_type=ScanType.COMBINED, status=ScanStatus.PENDING)
     db.add(scan)
     await db.flush()
     await db.refresh(scan)
 
-    # Commit records to the DB first so the worker can query them
-    await db.commit()
+    from workers.tasks import run_local_folder_scan
+    await _dispatch_celery_task(db, scan, run_local_folder_scan, scan.id, ScanType.COMBINED.value, path_str)
 
-    # Dispatch Celery tasks
-    try:
-        from workers.tasks import run_local_folder_scan
-        task = run_local_folder_scan.delay(
-            scan.id, ScanType.COMBINED.value, path_str
-        )
-        scan.celery_task_id = task.id
-        db.add(scan)
-    except Exception:
-        pass
-
-    # Commit updates to celery_task_ids
-    await db.commit()
-
-    return [
-        ScanResponse(
-            id=scan.id,
-            project_id=scan.project_id,
-            project_name=project_name,
-            scan_type=scan.scan_type,
-            status=scan.status,
-            progress=0,
-            progress_message=None,
-            celery_task_id=scan.celery_task_id,
-            started_at=scan.started_at,
-            completed_at=scan.completed_at,
-            duration_seconds=scan.duration_seconds,
-            error_message=scan.error_message,
-            summary=None,
-            created_at=scan.created_at,
-        )
-    ]
+    return [_build_scan_response(scan, project.name)]
 
 
 @router.get("/browse")
@@ -600,10 +463,9 @@ async def browse_directory(path: str = ""):
             target_dir = Path(normalized_path)
         else:
             target_dir = base_dir / normalized_path.lstrip("/")
-            
+
         target_dir = target_dir.resolve()
-        
-        # Ensure target_dir starts with resolved_base to prevent traversal
+
         if not str(target_dir).startswith(str(resolved_base)):
             target_dir = resolved_base
 
@@ -618,7 +480,7 @@ async def browse_directory(path: str = ""):
                     directories.append(item.name)
             except Exception:
                 pass
-                
+
         parent_path = None
         if target_dir != base_dir:
             parent_path = str(target_dir.parent.as_posix())
@@ -627,7 +489,7 @@ async def browse_directory(path: str = ""):
             "current_path": str(target_dir.as_posix()),
             "parent_path": parent_path,
             "directories": sorted(directories),
-            "is_root": target_dir == base_dir
+            "is_root": target_dir == base_dir,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -687,12 +549,12 @@ async def export_sarif(
                     "driver": {
                         "name": "SCA Platform",
                         "informationUri": "https://github.com/your-repo/sca-platform",
-                        "rules": []
+                        "rules": [],
                     }
                 },
-                "results": []
+                "results": [],
             }
-        ]
+        ],
     }
 
     rules_added = set()
@@ -702,36 +564,25 @@ async def export_sarif(
     for finding in findings:
         rule_id = finding.rule_id or "unknown-rule"
         if rule_id not in rules_added:
-            rules.append({
-                "id": rule_id,
-                "shortDescription": {"text": finding.title or "Unknown rule"}
-            })
+            rules.append({"id": rule_id, "shortDescription": {"text": finding.title or "Unknown rule"}})
             rules_added.add(rule_id)
 
         result_obj = {
             "ruleId": rule_id,
-            "message": {
-                "text": finding.description or finding.title or "No description"
-            },
+            "message": {"text": finding.description or finding.title or "No description"},
             "locations": [],
             "properties": {
                 "severity": finding.severity.value if hasattr(finding.severity, "value") else str(finding.severity),
-                "status": finding.status
-            }
+                "status": finding.status,
+            },
         }
 
         if finding.file_path:
-            location = {
-                "physicalLocation": {
-                    "artifactLocation": {
-                        "uri": finding.file_path
-                    }
-                }
-            }
+            location = {"physicalLocation": {"artifactLocation": {"uri": finding.file_path}}}
             if finding.line_start:
                 location["physicalLocation"]["region"] = {
                     "startLine": finding.line_start,
-                    "endLine": finding.line_end or finding.line_start
+                    "endLine": finding.line_end or finding.line_start,
                 }
             result_obj["locations"].append(location)
 

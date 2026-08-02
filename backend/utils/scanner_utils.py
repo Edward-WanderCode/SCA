@@ -35,7 +35,6 @@ def run_docker_scanner(
     cmd = ["docker", "run", "--rm"]
 
     # Forward SEMGREP_APP_TOKEN if set in host environment to authenticate Semgrep scans
-    import os
     semgrep_token = os.environ.get("SEMGREP_APP_TOKEN")
     if semgrep_token:
         cmd.extend(["-e", f"SEMGREP_APP_TOKEN={semgrep_token}"])
@@ -45,12 +44,10 @@ def run_docker_scanner(
     if volumes:
         for host_path, container_path in volumes.items():
             if host_path.startswith("/app/workspace"):
-                import os
                 vol_name = os.environ.get("WORKSPACE_VOLUME_NAME", "sca_scan_workspace")
                 cmd.extend(["-v", f"{vol_name}:/app/workspace"])
                 adjusted_args = [arg.replace(container_path, host_path) for arg in adjusted_args]
             elif host_path.startswith("/app/host_code"):
-                import os
                 host_base = os.environ.get("HOST_CODE_DIR_ON_HOST", "d:/Code")
                 relative_part = host_path[len("/app/host_code"):].lstrip("/")
                 if host_base:

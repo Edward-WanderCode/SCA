@@ -255,9 +255,20 @@ def _send_scan_failed_notification(project: Project | None, scan: Scan, error_me
             f"• <b>Loại quét:</b> <code>{scan.scan_type.value.upper()}</code>\n"
             f"• <b>Lỗi:</b> <code>{escape_html(error_message)}</code>"
         )
-        send_telegram_notification(msg, message_thread_id=thread_id)
+
+        inline_keyboard = None
+        if project:
+            inline_keyboard = [
+                [
+                    {"text": "🔄 Quét lại (Rescan)", "callback_data": f"rescan:{project.id}:{scan.scan_type.value}"},
+                    {"text": "🗑️ Xóa dự án (Delete)", "callback_data": f"delete:{project.id}"},
+                ]
+            ]
+
+        send_telegram_notification(msg, message_thread_id=thread_id, inline_keyboard=inline_keyboard)
     except Exception as e:
         logger.error(f"Failed to send scan failure notification: {e}")
+
 
 
 def _send_scan_start_notification(project: Project, scan: Scan, extra_info: str = ""):

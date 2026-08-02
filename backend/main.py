@@ -16,6 +16,20 @@ async def lifespan(app: FastAPI):
     # Startup
     await init_db()
     
+    # Ensure scan workspace directories are accessible by appuser
+    try:
+        import os
+        from pathlib import Path
+        workspace = Path(settings.SCAN_WORKSPACE_DIR)
+        workspace.mkdir(parents=True, exist_ok=True)
+        os.chmod(workspace, 0o755)
+        projects_dir = workspace / "projects"
+        projects_dir.mkdir(parents=True, exist_ok=True)
+        os.chmod(projects_dir, 0o755)
+
+    except Exception:
+        pass
+
     # Load dynamic system settings from DB into config
     try:
         from db.session import AsyncSessionLocal
@@ -24,6 +38,7 @@ async def lifespan(app: FastAPI):
             await sync_settings_to_config(session)
     except Exception as e:
         pass
+
 
     # Start Telegram Bot Polling in background
     import asyncio

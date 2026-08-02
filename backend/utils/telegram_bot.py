@@ -54,11 +54,28 @@ async def start_telegram_bot_polling():
                         break
 
                     params = {"offset": offset, "timeout": 20}
-                    response = await client.get(url, params=params)
-                    
+                    try:
+                        response = await client.get(url, params=params)
+                    except (httpx.ConnectError, httpx.TimeoutException, httpx.RequestError) as net_err:
+                        if "telegram-bot-api" in url or "localhost" in url or "127.0.0.1" in url:
+                            alt_url = url.replace(base_url, "https://api.telegram.org")
+                            if alt_url != url:
+                                try:
+                                    response = await client.get(alt_url, params=params)
+                                except Exception:
+                                    await asyncio.sleep(10)
+                                    continue
+                            else:
+                                await asyncio.sleep(10)
+                                continue
+                        else:
+                            await asyncio.sleep(10)
+                            continue
+
                     if response.status_code != 200:
                         await asyncio.sleep(5)
                         continue
+
 
                     data = response.json()
                     if not data.get("ok"):
@@ -322,7 +339,7 @@ async def handle_callback_query(callback_query: dict):
 
 async def process_delete_project(project_id: str):
     """
-    Delete project from DB (cascading scans and findings) and remove its Telegram topic.
+    Delete project from DB (cascading scans and findings), clean workspace, clear Redis cache, and remove its Telegram topic.
     """
     project_name = "Unknown"
     topic_id = None
@@ -338,10 +355,46 @@ async def process_delete_project(project_id: str):
             project_name = project.name
             topic_id = project.telegram_topic_id
 
-            # Cascade delete in DB
+            # 1. Cascade delete scans and findings in DB
+            from models.scan import Scan
+            from models.finding import Finding
+            from sqlalchemy import delete
+            
+            scan_ids_q = select(Scan.id).where(Scan.project_id == project_id)
+            scan_ids_res = await session.execute(scan_ids_q)
+            scan_ids = scan_ids_res.scalars().all()
+            
+            if scan_ids:
+                await session.execute(delete(Finding).where(Finding.scan_id.in_(scan_ids)))
+                await session.execute(delete(Scan).where(Scan.id.in_(scan_ids)))
+
+            # 2. Delete project folder from workspace
+            try:
+                import shutil, stat, os
+                from pathlib import Path
+                project_dir = Path(settings.SCAN_WORKSPACE_DIR) / "projects" / project_id
+                if project_dir.exists():
+                    def _force_remove_readonly(func, path, _):
+                        try:
+                            os.chmod(path, stat.S_IWRITE)
+                            func(path)
+                        except Exception:
+                            pass
+                    shutil.rmtree(project_dir, onerror=_force_remove_readonly)
+            except Exception as fe:
+                logger.error(f"Failed to remove project folder on disk: {fe}")
+
+            # 3. Delete project record
             await session.delete(project)
             await session.commit()
             logger.info(f"Project '{project_name}' ({project_id}) deleted from database via Telegram action.")
+
+            # 4. Clear all Redis API caches so Web UI updates immediately
+            try:
+                from core.cache import clear_all_api_caches
+                await clear_all_api_caches()
+            except Exception as ce:
+                logger.error(f"Failed to clear Redis cache on Telegram delete: {ce}")
 
             # Notify the main group chat
             msg = f"🗑️ <b>[SCA Platform]</b> Đã xóa dự án <b>{escape_html(project_name)}</b> thành công (bao gồm phần mềm và Topic Telegram)."
@@ -353,6 +406,7 @@ async def process_delete_project(project_id: str):
 
         except Exception as e:
             logger.error(f"Error deleting project {project_id} from Telegram command: {e}")
+
 
 
 async def process_rescan_project(project_id: str, scan_type: str, message_thread_id: int | None):

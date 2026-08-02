@@ -282,10 +282,18 @@ export const settingsApi = {
     return data;
   },
 
-  testTelegram: async (params?: { telegram_bot_token?: string; telegram_chat_id?: string; telegram_bot_command_thread_id?: number }) => {
+  testTelegram: async (params?: {
+    telegram_bot_token?: string;
+    telegram_chat_id?: string;
+    telegram_bot_command_thread_id?: number;
+    telegram_bot_api_url?: string;
+    telegram_api_id?: string;
+    telegram_api_hash?: string;
+  }) => {
     const { data } = await api.post<{ status: string; message: string }>('/settings/test-telegram', params);
     return data;
   },
+
 };
 
 export default api;

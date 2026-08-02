@@ -10,13 +10,23 @@ logger = logging.getLogger(__name__)
 
 @retry_external_api
 def _post_telegram_api(url: str, **kwargs) -> dict:
-    """Helper to make POST requests with retry logic."""
+    """Helper to make POST requests with retry logic and fallback to official API if local server is unreachable."""
     timeout = kwargs.pop('timeout', 10.0)
     with httpx.Client(timeout=timeout) as client:
-        response = client.post(url, **kwargs)
-        response.raise_for_status()
-        return response.json()
-
+        try:
+            response = client.post(url, **kwargs)
+            response.raise_for_status()
+            return response.json()
+        except (httpx.ConnectError, httpx.TimeoutException, httpx.RequestError) as err:
+            base_url = get_telegram_api_base_url()
+            if "telegram-bot-api" in url or "localhost" in url or "127.0.0.1" in url:
+                alt_url = url.replace(base_url, "https://api.telegram.org")
+                if alt_url != url:
+                    logger.warning(f"Local Telegram API ({url}) unreachable ({err}). Fallback to {alt_url}")
+                    response = client.post(alt_url, **kwargs)
+                    response.raise_for_status()
+                    return response.json()
+            raise
 
 
 def get_telegram_api_base_url() -> str:
@@ -67,8 +77,11 @@ def get_telegram_credentials() -> tuple[str | None, str | None, int | None]:
                         settings.TELEGRAM_BOT_COMMAND_THREAD_ID = thread_id
                     except ValueError:
                         pass
+                elif k == "TELEGRAM_BOT_API_URL" and v and v.strip():
+                    settings.TELEGRAM_BOT_API_URL = v.strip()
     except Exception as e:
         logger.debug(f"Failed to load Telegram credentials from DB: {e}")
+
 
     # Update cache
     credentials = (token, chat_id, thread_id)

@@ -396,10 +396,31 @@ async def create_local_folder_scan(
 
     # Save uploaded files
     project_workspace_dir = Path(settings.SCAN_WORKSPACE_DIR) / "projects" / project.id
+    try:
+        project_workspace_dir.mkdir(parents=True, exist_ok=True)
+        import os
+        os.chmod(project_workspace_dir, 0o755)
+
+    except Exception:
+        pass
+
     project_src_dir = project_workspace_dir / "src"
     if project_src_dir.exists():
-        shutil.rmtree(project_src_dir)
+        def _force_remove_readonly(func, path, _):
+            import stat, os
+            try:
+                os.chmod(path, stat.S_IWRITE)
+                func(path)
+            except Exception:
+                pass
+
+        try:
+            shutil.rmtree(project_src_dir, onerror=_force_remove_readonly)
+        except Exception as rm_err:
+            logger.warning(f"Could not completely remove old src dir {project_src_dir}: {rm_err}")
     project_src_dir.mkdir(parents=True, exist_ok=True)
+
+
 
     try:
         for upload_file in files:

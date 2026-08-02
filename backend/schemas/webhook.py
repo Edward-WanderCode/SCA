@@ -9,7 +9,8 @@ class WebhookConfigResponse(BaseModel):
 
 class WebhookGenerateRequest(BaseModel):
     """Request model for generating a new webhook secret."""
-    provider: str  # "github" or "gitlab"
+    provider: str  # Git provider identifier
+
 
 class GithubWebhookPayload(BaseModel):
     """Flexible model for parsing incoming GitHub webhooks."""

@@ -16,6 +16,33 @@ export default function ProjectsPage() {
   const [configModalProject, setConfigModalProject] = useState<{id: string, name: string} | null>(null);
   const [settingsModalProject, setSettingsModalProject] = useState<any | null>(null);
   const [formData, setFormData] = useState({ name: '', repo_url: '', description: '', branch: 'main', language: '' });
+
+  const [isAutoNamed, setIsAutoNamed] = useState(true);
+
+  const extractRepoName = (url: string): string => {
+    if (!url) return '';
+    const cleanUrl = url.trim().replace(/\.git$/i, '').replace(/\/+$/, '');
+    const parts = cleanUrl.split(/[/:]/);
+    const lastPart = parts[parts.length - 1];
+    return lastPart && !['github.com', 'gitlab.com', 'bitbucket.org'].includes(lastPart.toLowerCase()) ? lastPart : '';
+  };
+
+  const handleRepoUrlChange = (url: string) => {
+    const extractedName = extractRepoName(url);
+    setFormData((prev) => {
+      const shouldAutoFill = !prev.name || (isAutoNamed && extractedName);
+      return {
+        ...prev,
+        repo_url: url,
+        name: shouldAutoFill && extractedName ? extractedName : prev.name,
+      };
+    });
+    if (extractedName) {
+      setIsAutoNamed(true);
+    }
+  };
+
+
   const queryClient = useQueryClient();
   const { data, isLoading } = useQuery({
     queryKey: ['projects'],
@@ -94,7 +121,11 @@ export default function ProjectsPage() {
                 className="input"
                 placeholder="e.g. my-web-app"
                 value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setFormData((prev) => ({ ...prev, name: val }));
+                  setIsAutoNamed(false);
+                }}
               />
             </div>
             <div>
@@ -105,7 +136,7 @@ export default function ProjectsPage() {
                 className="input"
                 placeholder="https://github.com/org/repo"
                 value={formData.repo_url}
-                onChange={(e) => setFormData({ ...formData, repo_url: e.target.value })}
+                onChange={(e) => handleRepoUrlChange(e.target.value)}
               />
             </div>
             <div>
@@ -116,7 +147,10 @@ export default function ProjectsPage() {
                 className="input"
                 placeholder="main"
                 value={formData.branch}
-                onChange={(e) => setFormData({ ...formData, branch: e.target.value })}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setFormData((prev) => ({ ...prev, branch: val }));
+                }}
               />
             </div>
             <div>
@@ -127,7 +161,10 @@ export default function ProjectsPage() {
                 className="input"
                 placeholder="e.g. TypeScript"
                 value={formData.language}
-                onChange={(e) => setFormData({ ...formData, language: e.target.value })}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setFormData((prev) => ({ ...prev, language: val }));
+                }}
               />
             </div>
             <div style={{ gridColumn: 'span 2' }}>
@@ -138,8 +175,12 @@ export default function ProjectsPage() {
                 className="input"
                 placeholder="Brief project description"
                 value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setFormData((prev) => ({ ...prev, description: val }));
+                }}
               />
+
             </div>
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 20 }}>
@@ -164,7 +205,8 @@ export default function ProjectsPage() {
           <p style={{ fontSize: '0.8125rem', marginBottom: 16 }}>Get started by adding your first project repository.</p>
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: 20 }}>
+
           {displayProjects.map((project, idx) => (
             <motion.div
               key={project.id}

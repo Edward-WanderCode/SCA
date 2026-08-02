@@ -169,8 +169,25 @@ export interface SystemSettings {
   telegram_bot_token: string | null;
   telegram_chat_id: string | null;
   telegram_bot_command_thread_id: number | null;
+  telegram_bot_api_url: string | null;
+  telegram_api_id: string | null;
+  telegram_api_hash: string | null;
   opengrep_image: string;
   trivy_image: string;
   trufflehog_image: string;
   max_concurrent_scans: number;
 }
+
+export interface SystemSettingsUpdate {
+  telegram_bot_token?: string;
+  telegram_chat_id?: string;
+  telegram_bot_command_thread_id?: number;
+  telegram_bot_api_url?: string;
+  telegram_api_id?: string;
+  telegram_api_hash?: string;
+  opengrep_image?: string;
+  trivy_image?: string;
+  trufflehog_image?: string;
+  max_concurrent_scans?: number;
+}
+

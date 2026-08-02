@@ -321,7 +321,8 @@ export default function FindingsPage() {
       </div>
 
       {/* Split View: List + Detail */}
-      <div style={{ display: 'grid', gridTemplateColumns: selectedFinding ? '1fr 1fr' : '1fr', gap: 20, minHeight: 0, height: 'calc(100vh - 280px)' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: selectedFinding ? 'minmax(0, 1fr) minmax(0, 1.4fr)' : '1fr', gap: 20, minHeight: 0, height: 'calc(100vh - 280px)' }}>
+
         {/* Findings List */}
         <motion.div
           className="glass-card"

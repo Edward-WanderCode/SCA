@@ -27,21 +27,48 @@ def cleanup_old_workspaces():
     deleted_count = 0
 
     try:
+        def _force_remove_readonly(func, path, _):
+            import stat
+            try:
+                os.chmod(path, stat.S_IWRITE)
+                func(path)
+            except Exception:
+                pass
+
+        # Clean up orphaned project folders
+        projects_dir = workspace_dir / "projects"
+        if projects_dir.exists():
+            session = SyncSession()
+            try:
+                from models.project import Project
+                active_project_ids = {str(p.id) for p in session.query(Project.id).all()}
+                for p_entry in projects_dir.iterdir():
+                    if p_entry.is_dir() and p_entry.name not in active_project_ids:
+                        try:
+                            shutil.rmtree(p_entry, onerror=_force_remove_readonly)
+                            logger.info(f"Deleted orphaned project directory: {p_entry}")
+                            deleted_count += 1
+                        except Exception as e:
+                            logger.error(f"Failed to delete orphaned project directory {p_entry}: {e}")
+            finally:
+                session.close()
+
+        # Clean up old temp workspace directories
         for entry in workspace_dir.iterdir():
-            if entry.is_dir():
-                # Check modification time
+            if entry.is_dir() and entry.name != "projects":
                 mtime = entry.stat().st_mtime
                 if mtime < cutoff_time:
                     try:
-                        shutil.rmtree(entry)
+                        shutil.rmtree(entry, onerror=_force_remove_readonly)
                         logger.info(f"Deleted old workspace: {entry}")
                         deleted_count += 1
                     except Exception as e:
                         logger.error(f"Failed to delete old workspace {entry}: {e}")
                         
-        logger.info(f"Workspace cleanup completed. Deleted {deleted_count} old directories.")
+        logger.info(f"Workspace cleanup completed. Deleted {deleted_count} old/orphaned directories.")
     except Exception as e:
         logger.error(f"Error during workspace cleanup: {e}")
+
 
 
 @celery_app.task(name="workers.cleanup_tasks.cleanup_failed_scans")

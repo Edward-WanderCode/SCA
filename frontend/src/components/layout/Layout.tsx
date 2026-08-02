@@ -38,12 +38,13 @@ export default function Layout() {
         <main
           style={{
             flex: 1,
-            padding: isMobile ? '16px' : '32px',
-            maxWidth: 1440,
+            padding: isMobile ? '16px' : '24px 32px',
+            maxWidth: '100%',
             width: '100%',
             overflowX: 'hidden',
           }}
         >
+
           <Outlet />
         </main>
       </div>

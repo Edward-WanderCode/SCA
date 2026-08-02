@@ -1,5 +1,5 @@
 # Web Framework
-fastapi==0.115.6
+fastapi==0.115.8
 uvicorn[standard]==0.34.0
 python-multipart==0.0.31
 
@@ -10,7 +10,8 @@ psycopg2-binary==2.9.10
 alembic==1.14.1
 
 # Authentication & Security
-python-jose[cryptography]==3.3.0
+PyJWT==2.13.0
+
 passlib[bcrypt]==1.7.4
 bcrypt==3.2.2
 slowapi==0.1.9
@@ -28,14 +29,15 @@ httpx==0.28.1
 aiofiles==24.1.0
 
 # Git operations
-gitpython==3.1.54
+gitpython==3.1.55
 
 # Utilities
 python-dotenv==1.2.2
-orjson==3.10.15
+orjson==3.11.5
 
 # CORS
-starlette==0.41.3
+starlette==0.45.3
+
 
 # Observability & Reliability (Phase 2)
 tenacity==8.3.0
@@ -47,5 +49,5 @@ pytest==8.3.4
 pytest-asyncio==0.21.1
 pytest-cov==4.1.0
 faker==22.0.0
-PyJWT==2.13.0
 croniter==5.0.1
+

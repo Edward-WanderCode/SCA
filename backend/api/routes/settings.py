@@ -35,6 +35,12 @@ async def sync_settings_to_config(db: AsyncSession):
             settings.TELEGRAM_BOT_COMMAND_THREAD_ID = int(val) if val else 306
         except ValueError:
             pass
+    if "TELEGRAM_BOT_API_URL" in db_settings and db_settings["TELEGRAM_BOT_API_URL"]:
+        settings.TELEGRAM_BOT_API_URL = db_settings["TELEGRAM_BOT_API_URL"]
+    if "TELEGRAM_API_ID" in db_settings:
+        settings.TELEGRAM_API_ID = db_settings["TELEGRAM_API_ID"] or None
+    if "TELEGRAM_API_HASH" in db_settings:
+        settings.TELEGRAM_API_HASH = db_settings["TELEGRAM_API_HASH"] or None
     if "OPENGREP_IMAGE" in db_settings and db_settings["OPENGREP_IMAGE"]:
         settings.OPENGREP_IMAGE = db_settings["OPENGREP_IMAGE"]
     if "TRIVY_IMAGE" in db_settings and db_settings["TRIVY_IMAGE"]:
@@ -60,6 +66,9 @@ async def get_system_settings(
         telegram_bot_token=settings.TELEGRAM_BOT_TOKEN,
         telegram_chat_id=settings.TELEGRAM_CHAT_ID,
         telegram_bot_command_thread_id=settings.TELEGRAM_BOT_COMMAND_THREAD_ID,
+        telegram_bot_api_url=settings.TELEGRAM_BOT_API_URL,
+        telegram_api_id=settings.TELEGRAM_API_ID,
+        telegram_api_hash=settings.TELEGRAM_API_HASH,
         opengrep_image=settings.OPENGREP_IMAGE,
         trivy_image=settings.TRIVY_IMAGE,
         trufflehog_image=settings.TRUFFLEHOG_IMAGE,
@@ -81,6 +90,12 @@ async def update_system_settings(
         updates["TELEGRAM_CHAT_ID"] = data.telegram_chat_id.strip()
     if data.telegram_bot_command_thread_id is not None:
         updates["TELEGRAM_BOT_COMMAND_THREAD_ID"] = str(data.telegram_bot_command_thread_id)
+    if data.telegram_bot_api_url is not None:
+        updates["TELEGRAM_BOT_API_URL"] = data.telegram_bot_api_url.strip()
+    if data.telegram_api_id is not None:
+        updates["TELEGRAM_API_ID"] = data.telegram_api_id.strip()
+    if data.telegram_api_hash is not None:
+        updates["TELEGRAM_API_HASH"] = data.telegram_api_hash.strip()
     if data.opengrep_image is not None:
         updates["OPENGREP_IMAGE"] = data.opengrep_image.strip()
     if data.trivy_image is not None:
@@ -105,6 +120,9 @@ async def update_system_settings(
         telegram_bot_token=settings.TELEGRAM_BOT_TOKEN,
         telegram_chat_id=settings.TELEGRAM_CHAT_ID,
         telegram_bot_command_thread_id=settings.TELEGRAM_BOT_COMMAND_THREAD_ID,
+        telegram_bot_api_url=settings.TELEGRAM_BOT_API_URL,
+        telegram_api_id=settings.TELEGRAM_API_ID,
+        telegram_api_hash=settings.TELEGRAM_API_HASH,
         opengrep_image=settings.OPENGREP_IMAGE,
         trivy_image=settings.TRIVY_IMAGE,
         trufflehog_image=settings.TRUFFLEHOG_IMAGE,
@@ -121,6 +139,7 @@ async def test_telegram_connection(
     token = (payload and payload.telegram_bot_token) if (payload and payload.telegram_bot_token and payload.telegram_bot_token.strip()) else settings.TELEGRAM_BOT_TOKEN
     chat_id = (payload and payload.telegram_chat_id) if (payload and payload.telegram_chat_id and payload.telegram_chat_id.strip()) else settings.TELEGRAM_CHAT_ID
     thread_id = payload.telegram_bot_command_thread_id if (payload and payload.telegram_bot_command_thread_id is not None) else None
+    bot_api_url = (payload and payload.telegram_bot_api_url and payload.telegram_bot_api_url.strip()) or getattr(settings, 'TELEGRAM_BOT_API_URL', 'https://api.telegram.org')
 
     if not token or not str(token).strip():
         raise HTTPException(
@@ -136,8 +155,9 @@ async def test_telegram_connection(
 
     token_clean = str(token).strip()
     chat_id_clean = str(chat_id).strip()
+    base_url = bot_api_url.rstrip('/')
 
-    url = f"https://api.telegram.org/bot{token_clean}/sendMessage"
+    url = f"{base_url}/bot{token_clean}/sendMessage"
     test_msg = (
         "🧪 <b>[SCA Platform] Kiểm tra kết nối Telegram thành công!</b>\n\n"
         "• <b>Trạng thái:</b> <code>CONNECTED</code>\n"
@@ -156,7 +176,30 @@ async def test_telegram_connection(
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(url, json=data)
+            try:
+                resp = await client.post(url, json=data)
+            except (httpx.ConnectError, httpx.TimeoutException, httpx.RequestError) as net_err:
+                # If local telegram-bot-api server is unreachable, try fallback to official api.telegram.org
+                if "telegram-bot-api" in base_url or "localhost" in base_url or "127.0.0.1" in base_url:
+                    logger.warning(f"Local Telegram API server ({base_url}) unreachable: {net_err}. Trying official api.telegram.org fallback.")
+                    fallback_url = f"https://api.telegram.org/bot{token_clean}/sendMessage"
+                    try:
+                        resp = await client.post(fallback_url, json=data)
+                    except Exception:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=(
+                                f"Không thể kết nối tới Local Telegram Server ({base_url}). "
+                                "Container 'telegram-bot-api' chưa sẵn sàng (cần điền TELEGRAM_API_ID và TELEGRAM_API_HASH trong file .env để Docker chạy dịch vụ này). "
+                                "Bạn có thể tạm thời đổi URL sang 'https://api.telegram.org'."
+                            )
+                        )
+                else:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Không thể kết nối tới Telegram Server ({base_url}): {str(net_err)}"
+                    )
+
             resp_json = resp.json()
             if resp.status_code == 200 and resp_json.get("ok"):
                 return {
@@ -169,14 +212,17 @@ async def test_telegram_connection(
             if "message_thread_id" in data:
                 data_no_thread = dict(data)
                 del data_no_thread["message_thread_id"]
-                resp_fallback = await client.post(url, json=data_no_thread)
-                fallback_json = resp_fallback.json()
-                if resp_fallback.status_code == 200 and fallback_json.get("ok"):
-                    return {
-                        "status": "success",
-                        "message": f"Gửi tin nhắn kiểm tra thành công tới Chat ID {chat_id_clean} (không dùng Topic ID)!",
-                        "telegram_result": fallback_json.get("result")
-                    }
+                try:
+                    resp_fallback = await client.post(url, json=data_no_thread)
+                    fallback_json = resp_fallback.json()
+                    if resp_fallback.status_code == 200 and fallback_json.get("ok"):
+                        return {
+                            "status": "success",
+                            "message": f"Gửi tin nhắn kiểm tra thành công tới Chat ID {chat_id_clean} (không dùng Topic ID)!",
+                            "telegram_result": fallback_json.get("result")
+                        }
+                except Exception:
+                    pass
 
             desc = resp_json.get("description", f"Mã lỗi HTTP {resp.status_code}")
             raise HTTPException(
@@ -188,6 +234,7 @@ async def test_telegram_connection(
     except Exception as e:
         logger.error(f"Failed to test Telegram connection: {e}")
         raise HTTPException(
-            status_code=500,
-            detail=f"Không thể kết nối tới Telegram API: {str(e)}"
+            status_code=400,
+            detail=f"Lỗi kiểm tra kết nối Telegram: {str(e)}"
         )
+

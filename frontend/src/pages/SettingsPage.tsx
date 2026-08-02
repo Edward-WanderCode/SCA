@@ -29,7 +29,11 @@ export default function SettingsPage() {
   const [telegramBotToken, setTelegramBotToken] = useState('');
   const [telegramChatId, setTelegramChatId] = useState('');
   const [telegramCommandThreadId, setTelegramCommandThreadId] = useState<number | ''>(306);
+  const [telegramBotApiUrl, setTelegramBotApiUrl] = useState('http://telegram-bot-api:8081');
+  const [telegramApiId, setTelegramApiId] = useState('');
+  const [telegramApiHash, setTelegramApiHash] = useState('');
   const [showToken, setShowToken] = useState(false);
+  const [showApiHash, setShowApiHash] = useState(false);
 
   const [opengrepImage, setOpengrepImage] = useState('opengrep/opengrep:latest');
   const [trivyImage, setTrivyImage] = useState('aquasec/trivy:latest');
@@ -48,6 +52,9 @@ export default function SettingsPage() {
       setTelegramBotToken(settings.telegram_bot_token || '');
       setTelegramChatId(settings.telegram_chat_id || '');
       setTelegramCommandThreadId(settings.telegram_bot_command_thread_id ?? 306);
+      setTelegramBotApiUrl(settings.telegram_bot_api_url || 'http://telegram-bot-api:8081');
+      setTelegramApiId(settings.telegram_api_id || '');
+      setTelegramApiHash(settings.telegram_api_hash || '');
       setOpengrepImage(settings.opengrep_image || 'opengrep/opengrep:latest');
       setTrivyImage(settings.trivy_image || 'aquasec/trivy:latest');
       setTrufflehogImage(settings.trufflehog_image || 'trufflesecurity/trufflehog:latest');
@@ -61,6 +68,9 @@ export default function SettingsPage() {
         telegram_bot_token: telegramBotToken,
         telegram_chat_id: telegramChatId,
         telegram_bot_command_thread_id: telegramCommandThreadId !== '' ? Number(telegramCommandThreadId) : undefined,
+        telegram_bot_api_url: telegramBotApiUrl,
+        telegram_api_id: telegramApiId,
+        telegram_api_hash: telegramApiHash,
         opengrep_image: opengrepImage,
         trivy_image: trivyImage,
         trufflehog_image: trufflehogImage,
@@ -88,6 +98,9 @@ export default function SettingsPage() {
         telegram_bot_token: telegramBotToken,
         telegram_chat_id: telegramChatId,
         telegram_bot_command_thread_id: telegramCommandThreadId !== '' ? Number(telegramCommandThreadId) : undefined,
+        telegram_bot_api_url: telegramBotApiUrl,
+        telegram_api_id: telegramApiId,
+        telegram_api_hash: telegramApiHash,
       }),
     onMutate: () => {
       setTestStatus('testing');
@@ -112,6 +125,9 @@ export default function SettingsPage() {
       setTelegramBotToken(settings.telegram_bot_token || '');
       setTelegramChatId(settings.telegram_chat_id || '');
       setTelegramCommandThreadId(settings.telegram_bot_command_thread_id ?? 306);
+      setTelegramBotApiUrl(settings.telegram_bot_api_url || 'http://telegram-bot-api:8081');
+      setTelegramApiId(settings.telegram_api_id || '');
+      setTelegramApiHash(settings.telegram_api_hash || '');
       setOpengrepImage(settings.opengrep_image || 'opengrep/opengrep:latest');
       setTrivyImage(settings.trivy_image || 'aquasec/trivy:latest');
       setTrufflehogImage(settings.trufflehog_image || 'trufflesecurity/trufflehog:latest');
@@ -121,8 +137,9 @@ export default function SettingsPage() {
     }
   };
 
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 24, maxWidth: 840 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 24, width: '100%' }}>
       {/* Page Header */}
       <div>
         <h2 style={{ fontSize: '1.25rem', fontWeight: 700 }}>Hệ thống & Cấu hình</h2>
@@ -130,6 +147,10 @@ export default function SettingsPage() {
           Quản lý các thông số kết nối Telegram bot, công cụ quét bảo mật và cấu hình máy chủ
         </p>
       </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.8fr) minmax(0, 1fr)', gap: 24, alignItems: 'start' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+
 
       {/* Save Notification Alert */}
       {saveStatus === 'success' && (
@@ -285,6 +306,77 @@ export default function SettingsPage() {
               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 4, display: 'block' }}>
                 Thread/Topic ID chuyên biệt dùng cho lệnh điều khiển Bot
               </span>
+            </div>
+          </div>
+
+          {/* Telegram Local Bot API Server & API Credentials (Large File Upload up to 2GB) */}
+          <div style={{ paddingTop: 16, borderTop: '1px solid rgba(71, 85, 105, 0.15)', display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div>
+              <label style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 6 }}>
+                Telegram Bot API Server URL (Upload File Lớn &lt; 2GB)
+              </label>
+              <input
+                className="input"
+                placeholder="http://telegram-bot-api:8081"
+                value={telegramBotApiUrl}
+                onChange={(e) => setTelegramBotApiUrl(e.target.value)}
+                style={{ fontFamily: "'JetBrains Mono', monospace" }}
+              />
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 4, display: 'block' }}>
+                Đường dẫn Local Bot API Server. Đặt <code>http://telegram-bot-api:8081</code> cho Docker local server hoặc <code>https://api.telegram.org</code> (Mặc định giới hạn 50MB)
+              </span>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+              <div>
+                <label style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 6 }}>
+                  Telegram API ID (my.telegram.org)
+                </label>
+                <input
+                  className="input"
+                  placeholder="Ví dụ: 12345678"
+                  value={telegramApiId}
+                  onChange={(e) => setTelegramApiId(e.target.value)}
+                  style={{ fontFamily: "'JetBrains Mono', monospace" }}
+                />
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 4, display: 'block' }}>
+                  API ID tài khoản Telegram cá nhân (Lấy từ my.telegram.org)
+                </span>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 6 }}>
+                  Telegram API Hash (my.telegram.org)
+                </label>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    className="input"
+                    type={showApiHash ? 'text' : 'password'}
+                    placeholder="Ví dụ: 0123456789abcdef0123456789abcdef"
+                    value={telegramApiHash}
+                    onChange={(e) => setTelegramApiHash(e.target.value)}
+                    style={{ paddingRight: 40, fontFamily: showApiHash ? "'JetBrains Mono', monospace" : 'monospace' }}
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => setShowApiHash(!showApiHash)}
+                    style={{
+                      position: 'absolute',
+                      right: 6,
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      padding: 6,
+                      color: 'var(--text-muted)',
+                    }}
+                  >
+                    {showApiHash ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 4, display: 'block' }}>
+                  API Hash ứng dụng Telegram (Lấy từ my.telegram.org)
+                </span>
+              </div>
             </div>
           </div>
 
@@ -500,36 +592,72 @@ export default function SettingsPage() {
         </div>
       </motion.div>
 
-      {/* Action Buttons */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 8 }}>
-        <button
-          className="btn btn-secondary"
-          onClick={handleReset}
-          disabled={saveStatus === 'saving'}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+        {/* Action Buttons */}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 8 }}>
+          <button
+            className="btn btn-secondary"
+            onClick={handleReset}
+            disabled={saveStatus === 'saving'}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          >
+            <RotateCcw size={14} />
+            Đặt lại (Reset)
+          </button>
+          <button
+            className="btn btn-primary"
+            onClick={() => saveMutation.mutate()}
+            disabled={saveStatus === 'saving'}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          >
+            {saveStatus === 'saving' ? (
+              <>
+                <Loader2 size={16} className="animate-spin" />
+                Đang lưu...
+              </>
+            ) : (
+              <>
+                <Save size={16} />
+                Lưu thay đổi
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* Right Column: Setup Helper & Guides */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+        <motion.div
+          className="glass-card"
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}
         >
-          <RotateCcw size={14} />
-          Đặt lại (Reset)
-        </button>
-        <button
-          className="btn btn-primary"
-          onClick={() => saveMutation.mutate()}
-          disabled={saveStatus === 'saving'}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
-        >
-          {saveStatus === 'saving' ? (
-            <>
-              <Loader2 size={16} className="animate-spin" />
-              Đang lưu...
-            </>
-          ) : (
-            <>
-              <Save size={16} />
-              Lưu thay đổi
-            </>
-          )}
-        </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Shield size={20} color="var(--accent-indigo)" />
+            <h3 style={{ fontSize: '0.95rem', fontWeight: 600 }}>Hướng dẫn Cấu hình Nhanh</h3>
+          </div>
+
+          <div style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', lineHeight: 1.6, display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ padding: 12, borderRadius: 8, background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
+              <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>1. Telegram Bot Token</div>
+              <div>Tạo bot mới qua <b>@BotFather</b> trên Telegram và sao chép mã Token vào ô cấu hình.</div>
+            </div>
+
+            <div style={{ padding: 12, borderRadius: 8, background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
+              <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>2. Chat ID / Forum Supergroup</div>
+              <div>Thêm Bot vào Nhóm / Kênh Telegram của bạn và cấp quyền Quản trị viên (Admin) để tạo Topic và gửi thông báo.</div>
+            </div>
+
+            <div style={{ padding: 12, borderRadius: 8, background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
+              <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>3. Local Telegram Bot API Server</div>
+              <div>Nếu upload file báo cáo SARIF lớn ({'>'} 50MB), điền <b>API ID</b> và <b>API Hash</b> nhận từ <i>my.telegram.org</i>.</div>
+            </div>
+          </div>
+        </motion.div>
       </div>
     </div>
-  );
+  </div>
+);
 }
+
+

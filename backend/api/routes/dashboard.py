@@ -16,12 +16,29 @@ from core.cache import redis_client
 router = APIRouter()
 
 
+def _get_latest_scan_subquery():
+    """Subquery for the latest completed scan ID per project."""
+    rn_subq = (
+        select(
+            Scan.id.label("scan_id"),
+            func.row_number()
+            .over(
+                partition_by=Scan.project_id,
+                order_by=[desc(Scan.completed_at), desc(Scan.created_at)],
+            )
+            .label("rn"),
+        )
+        .where(Scan.status == ScanStatus.COMPLETED)
+    ).subquery()
+    return select(rn_subq.c.scan_id).where(rn_subq.c.rn == 1)
+
+
 @router.get("/stats")
 async def get_dashboard_stats(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Get aggregate dashboard statistics."""
+    """Get aggregate dashboard statistics based on latest completed scan per project."""
     cache_key = "dashboard:stats"
     cached = await redis_client.get(cache_key)
     if cached:
@@ -51,14 +68,28 @@ async def get_dashboard_stats(
         )
     ).scalar() or 0
 
-    # Total findings
+    # Subquery for latest completed scan per project
+    latest_scans_q = _get_latest_scan_subquery()
+
+    # Total active findings (latest scan per project, non-fixed)
     total_findings = (
-        await db.execute(select(func.count()).select_from(Finding))
+        await db.execute(
+            select(func.count())
+            .select_from(Finding)
+            .where(
+                Finding.scan_id.in_(latest_scans_q),
+                Finding.status != "fixed",
+            )
+        )
     ).scalar() or 0
 
-    # Findings by severity
+    # Active findings by severity (latest scan per project, non-fixed)
     severity_q = (
         select(Finding.severity, func.count())
+        .where(
+            Finding.scan_id.in_(latest_scans_q),
+            Finding.status != "fixed",
+        )
         .group_by(Finding.severity)
     )
     severity_result = await db.execute(severity_q)
@@ -93,8 +124,9 @@ async def get_dashboard_stats(
         },
     }
     
-    await redis_client.setex(cache_key, 300, json.dumps(result))
+    await redis_client.setex(cache_key, 10, json.dumps(result))
     return result
+
 
 
 @router.get("/trends")
@@ -198,13 +230,19 @@ async def get_recent_activity(
             "created_at": scan.created_at.isoformat(),
         })
 
-    # Recent critical/high findings
+    # Recent active critical/high findings
+    latest_scans_q = _get_latest_scan_subquery()
     critical_q = (
         select(Finding)
-        .where(Finding.severity.in_([Severity.CRITICAL, Severity.HIGH]))
+        .where(
+            Finding.scan_id.in_(latest_scans_q),
+            Finding.status != "fixed",
+            Finding.severity.in_([Severity.CRITICAL, Severity.HIGH]),
+        )
         .order_by(desc(Finding.created_at))
         .limit(limit)
     )
+
     critical_result = await db.execute(critical_q)
     critical_findings = [
         {

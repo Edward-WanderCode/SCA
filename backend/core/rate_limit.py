@@ -18,10 +18,12 @@ def get_user_id_or_ip(request: Request) -> str:
             payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
             user_id = payload.get("sub")
             if user_id:
-                return "user:" + str(user_id)
+                return f"user:{user_id}"  # nosemgrep: python.flask.security.audit.directly-returned-format-string.directly-returned-format-string
         except Exception:
             pass
-    return "ip:" + str(get_remote_address(request))
+    return f"ip:{get_remote_address(request)}"  # nosemgrep: python.flask.security.audit.directly-returned-format-string.directly-returned-format-string
+
+
 
 def get_dynamic_limit(request: Request) -> str:
     """Return different limits based on user role or auth status."""

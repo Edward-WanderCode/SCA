@@ -23,12 +23,20 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy source code
 COPY . .
 
-# Create workspace directory
-RUN mkdir -p /app/workspace
+# Create workspace directory and non-root user for security compliance
+RUN useradd -m -u 1000 appuser && \
+    mkdir -p /app/workspace && \
+    chown -R appuser:appuser /app && \
+    chmod -R 777 /app/workspace
 
 # Expose port
 EXPOSE 8000
 
+USER appuser
+
 # Run migrations then start the application
 CMD ["sh", "-c", "PYTHONPATH=/app alembic upgrade head && PYTHONPATH=/app uvicorn main:app --host 0.0.0.0 --port 8000"]
+
+
+
 

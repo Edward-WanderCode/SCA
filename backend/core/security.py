@@ -5,8 +5,13 @@ Security utilities for JWT token management and password hashing.
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from jose import JWTError, jwt
+import jwt
 from passlib.context import CryptContext
+
+# Password hashing context — bcrypt with auto-upgrade
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
 import redis.asyncio as aioredis
 import logging
 
@@ -14,10 +19,8 @@ from config import settings
 
 logger = logging.getLogger(__name__)
 
-# Password hashing context — bcrypt with auto-upgrade
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 # Redis client for token blacklist (lazy initialized)
+
 _redis_client: aioredis.Redis | None = None
 
 # Token blacklist key prefix
@@ -102,8 +105,9 @@ def verify_token(token: str) -> dict[str, Any] | None:
             algorithms=[settings.JWT_ALGORITHM],
         )
         return payload
-    except JWTError:
+    except jwt.PyJWTError:
         return None
+
 
 
 # === Token Blacklist (Redis) ===

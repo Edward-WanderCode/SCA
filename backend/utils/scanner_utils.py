@@ -102,36 +102,62 @@ def clone_repository(repo_url: str, target_dir: str, branch: str = "main") -> st
 
     # Remove existing if present
     if repo_path.exists():
-        shutil.rmtree(repo_path)
+        def _force_remove_readonly(func, path, _):
+            import stat
+            try:
+                os.chmod(path, stat.S_IWRITE)
+                func(path)
+            except Exception:
+                pass
+        shutil.rmtree(repo_path, onerror=_force_remove_readonly)
+
+    # Check for GITHUB_TOKEN or GIT_TOKEN in env if URL doesn't contain auth credentials
+    actual_repo_url = repo_url.strip()
+    git_token = getattr(settings, 'GITHUB_TOKEN', None) or os.getenv('GITHUB_TOKEN') or os.getenv('GIT_TOKEN')
+    if git_token and "github.com" in actual_repo_url and "@" not in actual_repo_url:
+        actual_repo_url = actual_repo_url.replace("https://github.com/", f"https://{git_token}@github.com/")
 
     logger.info(f"Cloning {repo_url} (branch: {branch}) to {repo_path}")
 
+    env = os.environ.copy()
+    env["GIT_TERMINAL_PROMPT"] = "0"
+
     try:
         result = subprocess.run(
-            ["git", "clone", "--depth", "1", "--branch", branch, repo_url, str(repo_path)],
+            ["git", "clone", "--depth", "1", "--branch", branch, actual_repo_url, str(repo_path)],
             capture_output=True,
             text=True,
             timeout=120,
+            env=env,
         )
 
         if result.returncode != 0:
-            # Try without branch specification (might be default branch)
+            # Try without branch specification (might be default branch like master / main)
             result = subprocess.run(
-                ["git", "clone", "--depth", "1", repo_url, str(repo_path)],
+                ["git", "clone", "--depth", "1", actual_repo_url, str(repo_path)],
                 capture_output=True,
                 text=True,
                 timeout=120,
+                env=env,
             )
 
         if result.returncode != 0:
-            raise GitCloneError(repo_url, result.stderr)
+            err_msg = result.stderr.strip() if result.stderr else "Unknown Git error"
+            if "does not exist" in err_msg or "could not read Username" in err_msg or "Authentication failed" in err_msg:
+                err_msg += (
+                    "\n💡 Lưu ý: Đây là Private Repository hoặc chưa được cấp quyền truy cập. "
+                    "Hãy kiểm tra lại URL hoặc nhúng Personal Access Token (PAT) vào URL dạng: "
+                    "https://<PAT_TOKEN>@github.com/User/Repo.git"
+                )
+            raise GitCloneError(repo_url, err_msg)
 
         logger.info(f"Repository cloned successfully to {repo_path}")
         return str(repo_path)
 
     except subprocess.TimeoutExpired:
         logger.error("Git clone timed out")
-        raise GitCloneError(repo_url, "Clone timed out")
+        raise GitCloneError(repo_url, "Git clone timed out after 120s")
+
 
 
 def parse_json_stream(output: str) -> list[dict]:

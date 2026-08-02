@@ -281,14 +281,21 @@ async def delete_project(
 
     # Clean up project folder from workspace if it exists
     try:
-        import shutil
+        import shutil, stat, os
         from pathlib import Path
         from config import settings
         project_dir = Path(settings.SCAN_WORKSPACE_DIR) / "projects" / project_id
         if project_dir.exists():
-            shutil.rmtree(project_dir)
+            def _force_remove_readonly(func, path, _):
+                try:
+                    os.chmod(path, stat.S_IWRITE)
+                    func(path)
+                except Exception:
+                    pass
+            shutil.rmtree(project_dir, onerror=_force_remove_readonly)
     except Exception:
         pass
+
 
     await db.delete(project)
     await db.commit()

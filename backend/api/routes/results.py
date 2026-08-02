@@ -227,9 +227,10 @@ async def export_findings_report(
     findings = result.scalars().all()
 
     # Resolve project info
-    project_name = "Global Report"
+    project_name = "Global_Report"
     repo_url = "N/A"
     branch = "N/A"
+    scan_seq_str = ""
     if project_id:
         from models.project import Project
         proj_res = await db.execute(select(Project).where(Project.id == project_id))
@@ -238,6 +239,12 @@ async def export_findings_report(
             project_name = project.name
             repo_url = project.repo_url
             branch = project.branch
+
+            scan_count_res = await db.execute(
+                select(func.count()).select_from(Scan).where(Scan.project_id == project_id, Scan.status == ScanStatus.COMPLETED)
+            )
+            scan_count = scan_count_res.scalar() or 1
+            scan_seq_str = f"_scan{scan_count:02d}"
 
     total_count = len(findings)
     severity_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
@@ -248,19 +255,23 @@ async def export_findings_report(
 
     now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     ts_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    safe_project = project_name.lower().replace(" ", "_")
+    safe_project = "".join(c for c in project_name if c.isalnum() or c in ("-", "_")).rstrip()
+    if not safe_project:
+        safe_project = "Project"
+
+    filename_base = f"{safe_project}{scan_seq_str}_{ts_str}"
 
     if format == "markdown":
         content = _render_markdown_report(findings, project_name, repo_url, branch, now_str, severity_counts, total_count)
         return Response(
             content=content, media_type="text/markdown",
-            headers={"Content-Disposition": f"attachment; filename=sca_report_{safe_project}_{ts_str}.md"},
+            headers={"Content-Disposition": f'attachment; filename="{filename_base}.md"'},
         )
     elif format == "html":
         content = _render_html_report(findings, project_name, repo_url, branch, now_str, severity_counts, total_count)
         return Response(
             content=content, media_type="text/html",
-            headers={"Content-Disposition": f"attachment; filename=sca_report_{safe_project}_{ts_str}.html"},
+            headers={"Content-Disposition": f'attachment; filename="{filename_base}.html"'},
         )
     elif format == "json":
         findings_dicts = [
@@ -285,7 +296,7 @@ async def export_findings_report(
         }, indent=2)
         return Response(
             content=json_content, media_type="application/json",
-            headers={"Content-Disposition": f"attachment; filename=sca_report_{safe_project}_{ts_str}.json"},
+            headers={"Content-Disposition": f'attachment; filename="{filename_base}.json"'},
         )
 
 

@@ -221,12 +221,22 @@ def _send_scan_completed_notification(project: Project, scan: Scan, session: Ses
         try:
             from utils.report_generator import generate_html_report
             import tempfile
+            from sqlalchemy import func
 
             findings = session.query(Finding).filter(Finding.scan_id == scan.id).all()
             html_content = generate_html_report(project, scan, findings)
 
-            safe_name = "".join([c if c.isalnum() or c in ("-", "_") else "_" for c in project.name])
-            report_filename = f"{safe_name}_Report_{scan.id[:8]}.html"
+            scan_count = session.query(func.count(Scan.id)).filter(
+                Scan.project_id == project.id,
+                Scan.status == ScanStatus.COMPLETED
+            ).scalar() or 1
+
+            ts_str = scan.completed_at.strftime("%Y%m%d_%H%M%S") if scan.completed_at else datetime.now().strftime("%Y%m%d_%H%M%S")
+            safe_name = "".join([c for c in project.name if c.isalnum() or c in ("-", "_")]).strip()
+            if not safe_name:
+                safe_name = "Project"
+
+            report_filename = f"{safe_name}_scan{scan_count:02d}_{ts_str}.html"
 
             temp_path = os.path.join(tempfile.gettempdir(), report_filename)
             with open(temp_path, "w", encoding="utf-8") as f:

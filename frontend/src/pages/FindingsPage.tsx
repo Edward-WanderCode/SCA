@@ -50,7 +50,17 @@ export default function FindingsPage() {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', `sca_report_${format}_${Date.now()}.${extension}`);
+
+      let filename = `sca_report_${format}_${Date.now()}.${extension}`;
+      const disposition = response.headers?.['content-disposition'];
+      if (disposition) {
+        const match = disposition.match(/filename="?([^";]+)"?/);
+        if (match && match[1]) {
+          filename = match[1];
+        }
+      }
+
+      link.setAttribute('download', filename);
       document.body.appendChild(link);
       link.click();
       link.remove();

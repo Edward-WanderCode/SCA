@@ -72,6 +72,7 @@ def parse_opengrep_results(output: dict | list) -> list[dict]:
                 "code_snippet": extra.get("lines", ""),
                 "rule_id": result.get("check_id", ""),
                 "cve_id": metadata.get("cve", None),
+                "detector_type": "opengrep",
                 "metadata_json": {
                     "references": metadata.get("references", []),
                     "category": metadata.get("category", ""),

@@ -9,11 +9,23 @@ import { findingsApi, projectsApi, default as api } from '@/lib/api';
 import { severityConfig } from '@/lib/utils';
 import type { Severity, Finding } from '@/types';
 
+const getToolBadge = (detectorType?: string | null) => {
+  if (!detectorType) return null;
+  const dt = detectorType.toLowerCase();
+  if (dt === 'opengrep') return { label: 'OpenGrep', icon: '🔍', color: '#818cf8', bg: 'rgba(99, 102, 241, 0.12)', border: 'rgba(99, 102, 241, 0.3)' };
+  if (dt === 'trivy') return { label: 'Trivy', icon: '🛡️', color: '#38bdf8', bg: 'rgba(56, 189, 248, 0.12)', border: 'rgba(56, 189, 248, 0.3)' };
+  if (dt === 'trufflehog') return { label: 'TruffleHog', icon: '🔑', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.12)', border: 'rgba(245, 158, 11, 0.3)' };
+  if (dt === 'bandit') return { label: 'Bandit', icon: '🐍', color: '#10b981', bg: 'rgba(16, 185, 129, 0.12)', border: 'rgba(16, 185, 129, 0.3)' };
+  if (dt === 'gosec') return { label: 'GoSec', icon: '🐹', color: '#ec4899', bg: 'rgba(236, 72, 153, 0.12)', border: 'rgba(236, 72, 153, 0.3)' };
+  return { label: detectorType, icon: '⚙️', color: '#9ca3af', bg: 'rgba(156, 163, 175, 0.12)', border: 'rgba(156, 163, 175, 0.3)' };
+};
+
 export default function FindingsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const filterProjectId = searchParams.get('project_id') || '';
   const filterScanId = searchParams.get('scan_id') || '';
   const [filterSeverity, setFilterSeverity] = useState<Severity | ''>('');
+  const [filterDetector, setFilterDetector] = useState<string>('');
   const [filterStatus, setFilterStatus] = useState<string>('open');
   const [filterNewOnly, setFilterNewOnly] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -57,12 +69,13 @@ export default function FindingsPage() {
 
   const queryClient = useQueryClient();
   const { data, isLoading } = useQuery({
-    queryKey: ['findings', page, filterSeverity, filterStatus, filterProjectId, filterScanId, searchQuery],
+    queryKey: ['findings', page, filterSeverity, filterDetector, filterStatus, filterProjectId, filterScanId, searchQuery],
     queryFn: () =>
       findingsApi.list({
         page,
         page_size: 50,
         severity: filterSeverity || undefined,
+        detector_type: filterDetector || undefined,
         status: filterStatus || undefined,
         project_id: filterProjectId || undefined,
         scan_id: filterScanId || undefined,
@@ -185,6 +198,23 @@ export default function FindingsPage() {
           <option value="medium">🟡 Medium</option>
           <option value="low">🔵 Low</option>
           <option value="info">⚪ Info</option>
+        </select>
+
+        <select
+          className="input"
+          value={filterDetector}
+          onChange={(e) => {
+            setFilterDetector(e.target.value);
+            setPage(1);
+          }}
+          style={{ width: 150, height: 36, fontSize: '0.8125rem' }}
+        >
+          <option value="">All Tools</option>
+          <option value="opengrep">🔍 OpenGrep</option>
+          <option value="trivy">🛡️ Trivy</option>
+          <option value="trufflehog">🔑 TruffleHog</option>
+          <option value="bandit">🐍 Bandit</option>
+          <option value="gosec">🐹 GoSec</option>
         </select>
 
         <select
@@ -390,6 +420,29 @@ export default function FindingsPage() {
                         <span className={`badge badge-${finding.severity}`} style={{ fontSize: '0.625rem' }}>
                           {sevConf.label}
                         </span>
+                        {finding.detector_type && (() => {
+                          const tool = getToolBadge(finding.detector_type);
+                          if (!tool) return null;
+                          return (
+                            <span
+                              style={{
+                                fontSize: '0.625rem',
+                                padding: '2px 6px',
+                                borderRadius: 4,
+                                background: tool.bg,
+                                color: tool.color,
+                                border: `1px solid ${tool.border}`,
+                                fontWeight: 600,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 3,
+                              }}
+                              title={`Phát hiện bởi ${tool.label}`}
+                            >
+                              {tool.icon} {tool.label}
+                            </span>
+                          );
+                        })()}
                         {finding.is_new && (
                           <span
                             className="badge"
@@ -623,6 +676,31 @@ export default function FindingsPage() {
 
             {/* Meta Info */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
+              {selectedFinding.detector_type && (() => {
+                const tool = getToolBadge(selectedFinding.detector_type);
+                if (!tool) return null;
+                return (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>Công cụ phát hiện:</span>
+                    <span
+                      style={{
+                        fontSize: '0.75rem',
+                        padding: '3px 10px',
+                        borderRadius: 6,
+                        background: tool.bg,
+                        color: tool.color,
+                        border: `1px solid ${tool.border}`,
+                        fontWeight: 600,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 4,
+                      }}
+                    >
+                      {tool.icon} {tool.label}
+                    </span>
+                  </div>
+                );
+              })()}
               {selectedFinding.file_path && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <FileCode size={14} color="var(--text-muted)" />

@@ -60,8 +60,8 @@ class ScanService:
 
         if settings.USE_LOCAL_BANDIT:
             import subprocess
-            cmd = ["bandit", "-r", repo_path, "-f", "json"]
-            proc_result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+            cmd = ["bandit", "-r", ".", "-f", "json"]
+            proc_result = subprocess.run(cmd, capture_output=True, text=True, timeout=600, cwd=repo_path)
             stdout, stderr = proc_result.stdout, proc_result.stderr
         else:
             result = run_docker_scanner(
@@ -91,8 +91,8 @@ class ScanService:
 
         if settings.USE_LOCAL_GOSEC:
             import subprocess
-            cmd = ["gosec", "-fmt=json", f"{repo_path}/..."]
-            proc_result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+            cmd = ["gosec", "-fmt=json", "./..."]
+            proc_result = subprocess.run(cmd, capture_output=True, text=True, timeout=600, cwd=repo_path)
             stdout, stderr = proc_result.stdout, proc_result.stderr
         else:
             result = run_docker_scanner(
@@ -148,8 +148,8 @@ class ScanService:
                 logger.info(f"Running OpenGrep polyglot scan on {repo_path}")
                 if settings.USE_LOCAL_OPENGREP:
                     import subprocess
-                    cmd = ["opengrep", "scan", "--config", "auto", "--json", "--no-git-ignore", repo_path]
-                    proc_result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+                    cmd = ["opengrep", "scan", "--config", "auto", "--json", "--no-git-ignore", "."]
+                    proc_result = subprocess.run(cmd, capture_output=True, text=True, timeout=600, cwd=repo_path)
                     stdout, stderr = proc_result.stdout, proc_result.stderr
                 else:
                     result = run_docker_scanner(
@@ -205,9 +205,9 @@ class ScanService:
                 "--format", "json",
                 "--severity", "CRITICAL,HIGH,MEDIUM,LOW",
                 "--scanners", "vuln",
-                repo_path,
+                ".",
             ]
-            proc_result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+            proc_result = subprocess.run(cmd, capture_output=True, text=True, timeout=600, cwd=repo_path)
             stdout, stderr = proc_result.stdout, proc_result.stderr
         else:
             result = run_docker_scanner(
@@ -251,9 +251,9 @@ class ScanService:
                 "filesystem",
                 "--json",
                 "--no-update",
-                repo_path,
+                ".",
             ]
-            proc_result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+            proc_result = subprocess.run(cmd, capture_output=True, text=True, timeout=600, cwd=repo_path)
             stdout, stderr = proc_result.stdout, proc_result.stderr
         else:
             result = run_docker_scanner(

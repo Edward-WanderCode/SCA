@@ -54,6 +54,7 @@ def parse_gosec_results(output: dict | list) -> list[dict]:
                 "line_end": line_no,
                 "code_snippet": result.get("code", ""),
                 "rule_id": result.get("rule_id", ""),
+                "detector_type": "gosec",
                 "cve_id": None,
                 "metadata_json": {
                     "references": [cwe_info.get("url", "")] if cwe_info.get("url") else [],

@@ -86,6 +86,7 @@ def parse_trivy_results(output: dict) -> list[dict]:
                     "package_name": vuln.get("PkgName", ""),
                     "package_version": vuln.get("InstalledVersion", ""),
                     "fixed_version": vuln.get("FixedVersion", ""),
+                    "detector_type": "trivy",
                     "metadata_json": {
                         "primary_url": vuln.get("PrimaryURL", ""),
                         "references": vuln.get("References", []),

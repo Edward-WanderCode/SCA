@@ -43,6 +43,7 @@ class FindingListResponse(BaseModel):
 class FindingFilters(BaseModel):
     """Filters for querying findings."""
     severity: list[Severity] | None = None
+    detector_type: str | None = None
     scan_type: str | None = None
     file_path: str | None = None
     rule_id: str | None = None

@@ -101,9 +101,10 @@ def parse_trufflehog_results(results: list[dict]) -> list[dict]:
                 "line_end": line,
                 "code_snippet": result.get("Redacted", ""),
                 "rule_id": f"trufflehog-{detector_name.lower()}",
-                "detector_type": detector_name,
+                "detector_type": "trufflehog",
                 "verified": verified,
                 "metadata_json": {
+                    "secret_type": detector_name,
                     "detector_type_id": result.get("DetectorType"),
                     "decoder_name": result.get("DecoderName", ""),
                     "source_type": result.get("SourceType"),

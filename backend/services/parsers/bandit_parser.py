@@ -50,6 +50,7 @@ def parse_bandit_results(output: dict | list) -> list[dict]:
                 "line_end": result.get("line_number"),
                 "code_snippet": result.get("code", ""),
                 "rule_id": result.get("test_id", ""),
+                "detector_type": "bandit",
                 "cve_id": None,
                 "metadata_json": {
                     "references": [result.get("more_info", "")] if result.get("more_info") else [],

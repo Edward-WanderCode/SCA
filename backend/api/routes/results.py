@@ -98,6 +98,7 @@ async def list_findings(
     scan_id: str | None = None,
     project_id: str | None = None,
     severity: Severity | None = None,
+    detector_type: str | None = None,
     file_path: str | None = None,
     rule_id: str | None = None,
     cve_id: str | None = None,
@@ -108,7 +109,7 @@ async def list_findings(
     current_user: User = Depends(get_current_active_user),
 ):
     """List findings with filters and pagination."""
-    cache_key = f"findings:list:{page}:{page_size}:{scan_id or ''}:{project_id or ''}:{severity or ''}:{file_path or ''}:{rule_id or ''}:{cve_id or ''}:{verified or ''}:{status or ''}:{search or ''}"
+    cache_key = f"findings:list:{page}:{page_size}:{scan_id or ''}:{project_id or ''}:{severity or ''}:{detector_type or ''}:{file_path or ''}:{rule_id or ''}:{cve_id or ''}:{verified or ''}:{status or ''}:{search or ''}"
     cached = await redis_client.get(cache_key)
     if cached:
         return json.loads(cached)
@@ -123,6 +124,8 @@ async def list_findings(
 
     if severity:
         query = query.where(Finding.severity == severity)
+    if detector_type:
+        query = query.where(Finding.detector_type == detector_type)
     if file_path:
         query = query.where(Finding.file_path.ilike(f"%{file_path}%"))
     if rule_id:

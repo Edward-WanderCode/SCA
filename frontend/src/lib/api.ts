@@ -226,6 +226,7 @@ export const findingsApi = {
     scan_id?: string;
     project_id?: string;
     severity?: Severity;
+    detector_type?: string;
     status?: string;
     file_path?: string;
     rule_id?: string;

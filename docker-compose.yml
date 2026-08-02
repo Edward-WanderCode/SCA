@@ -62,7 +62,7 @@ services:
   # === Celery Worker ===
   celery-worker:
     build: ./backend
-    command: celery -A workers.celery_app worker --loglevel=info --concurrency=3
+    command: celery -A workers.celery_app worker --loglevel=info --concurrency=6
     environment:
       DATABASE_URL: postgresql+asyncpg://sca_user:sca_password@postgres:5432/sca_platform
       REDIS_URL: redis://redis:6379/0

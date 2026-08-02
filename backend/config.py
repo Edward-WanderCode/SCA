@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     USE_LOCAL_OPENGREP: bool = True
     SCAN_WORKSPACE_DIR: str = "/app/workspace"
     HOST_CODE_DIR: str = "/app/host_code"
-    MAX_CONCURRENT_SCANS: int = 3
+    MAX_CONCURRENT_SCANS: int = 6
 
     # Telegram
     TELEGRAM_BOT_TOKEN: Optional[str] = None

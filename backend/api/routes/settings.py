@@ -47,6 +47,16 @@ async def sync_settings_to_config(db: AsyncSession):
         settings.TRIVY_IMAGE = db_settings["TRIVY_IMAGE"]
     if "TRUFFLEHOG_IMAGE" in db_settings and db_settings["TRUFFLEHOG_IMAGE"]:
         settings.TRUFFLEHOG_IMAGE = db_settings["TRUFFLEHOG_IMAGE"]
+    if "USE_LOCAL_TRIVY" in db_settings:
+        settings.USE_LOCAL_TRIVY = db_settings["USE_LOCAL_TRIVY"].lower() in ("true", "1", "yes")
+    if "USE_LOCAL_OPENGREP" in db_settings:
+        settings.USE_LOCAL_OPENGREP = db_settings["USE_LOCAL_OPENGREP"].lower() in ("true", "1", "yes")
+    if "USE_LOCAL_TRUFFLEHOG" in db_settings:
+        settings.USE_LOCAL_TRUFFLEHOG = db_settings["USE_LOCAL_TRUFFLEHOG"].lower() in ("true", "1", "yes")
+    if "USE_LOCAL_BANDIT" in db_settings:
+        settings.USE_LOCAL_BANDIT = db_settings["USE_LOCAL_BANDIT"].lower() in ("true", "1", "yes")
+    if "USE_LOCAL_GOSEC" in db_settings:
+        settings.USE_LOCAL_GOSEC = db_settings["USE_LOCAL_GOSEC"].lower() in ("true", "1", "yes")
     if "MAX_CONCURRENT_SCANS" in db_settings and db_settings["MAX_CONCURRENT_SCANS"]:
         try:
             settings.MAX_CONCURRENT_SCANS = int(db_settings["MAX_CONCURRENT_SCANS"])

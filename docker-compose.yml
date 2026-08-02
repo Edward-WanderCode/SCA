@@ -44,6 +44,11 @@ services:
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
       TELEGRAM_BOT_COMMAND_THREAD_ID: ${TELEGRAM_BOT_COMMAND_THREAD_ID:-306}
       TELEGRAM_BOT_API_URL: http://telegram-bot-api:8081
+      USE_LOCAL_OPENGREP: "true"
+      USE_LOCAL_TRIVY: "true"
+      USE_LOCAL_TRUFFLEHOG: "true"
+      USE_LOCAL_BANDIT: "true"
+      USE_LOCAL_GOSEC: "true"
       PYTHONUNBUFFERED: "1"
 
     ports:
@@ -79,6 +84,11 @@ services:
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
       TELEGRAM_BOT_COMMAND_THREAD_ID: ${TELEGRAM_BOT_COMMAND_THREAD_ID:-306}
       TELEGRAM_BOT_API_URL: http://telegram-bot-api:8081
+      USE_LOCAL_OPENGREP: "true"
+      USE_LOCAL_TRIVY: "true"
+      USE_LOCAL_TRUFFLEHOG: "true"
+      USE_LOCAL_BANDIT: "true"
+      USE_LOCAL_GOSEC: "true"
       PYTHONUNBUFFERED: "1"
 
     depends_on:

@@ -45,6 +45,10 @@ class Settings(BaseSettings):
 
     # Workspace
     USE_LOCAL_OPENGREP: bool = True
+    USE_LOCAL_TRIVY: bool = True
+    USE_LOCAL_TRUFFLEHOG: bool = True
+    USE_LOCAL_BANDIT: bool = True
+    USE_LOCAL_GOSEC: bool = True
     SCAN_WORKSPACE_DIR: str = "/app/workspace"
     HOST_CODE_DIR: str = "/app/host_code"
     MAX_CONCURRENT_SCANS: int = 6

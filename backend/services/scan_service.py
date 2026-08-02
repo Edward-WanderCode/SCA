@@ -58,22 +58,29 @@ class ScanService:
         logger.info(f"Running Bandit scan on {repo_path}")
         from services.parsers.bandit_parser import parse_bandit_results
 
-        result = run_docker_scanner(
-            image=settings.BANDIT_IMAGE,
-            command_args=[
-                "-r",
-                "/src",
-                "-f", "json",
-            ],
-            volumes={repo_path: "/src"},
-            timeout=600,
-        )
+        if settings.USE_LOCAL_BANDIT:
+            import subprocess
+            cmd = ["bandit", "-r", repo_path, "-f", "json"]
+            proc_result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+            stdout, stderr = proc_result.stdout, proc_result.stderr
+        else:
+            result = run_docker_scanner(
+                image=settings.BANDIT_IMAGE,
+                command_args=[
+                    "-r",
+                    "/src",
+                    "-f", "json",
+                ],
+                volumes={repo_path: "/src"},
+                timeout=600,
+            )
+            stdout, stderr = result.stdout, result.stderr
 
-        if result.stdout:
-            output = parse_json_output(result.stdout)
+        if stdout:
+            output = parse_json_output(stdout)
             return parse_bandit_results(output)
 
-        logger.warning(f"Bandit produced no output. stderr: {result.stderr[:500]}")
+        logger.warning(f"Bandit produced no output. stderr: {stderr[:500]}")
         return []
 
     @staticmethod
@@ -82,21 +89,28 @@ class ScanService:
         logger.info(f"Running GoSec scan on {repo_path}")
         from services.parsers.gosec_parser import parse_gosec_results
 
-        result = run_docker_scanner(
-            image=settings.GOSEC_IMAGE,
-            command_args=[
-                "-fmt=json",
-                "/src/...",
-            ],
-            volumes={repo_path: "/src"},
-            timeout=600,
-        )
+        if settings.USE_LOCAL_GOSEC:
+            import subprocess
+            cmd = ["gosec", "-fmt=json", f"{repo_path}/..."]
+            proc_result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+            stdout, stderr = proc_result.stdout, proc_result.stderr
+        else:
+            result = run_docker_scanner(
+                image=settings.GOSEC_IMAGE,
+                command_args=[
+                    "-fmt=json",
+                    "/src/...",
+                ],
+                volumes={repo_path: "/src"},
+                timeout=600,
+            )
+            stdout, stderr = result.stdout, result.stderr
 
-        if result.stdout:
-            output = parse_json_output(result.stdout)
+        if stdout:
+            output = parse_json_output(stdout)
             return parse_gosec_results(output)
 
-        logger.warning(f"GoSec produced no output. stderr: {result.stderr[:500]}")
+        logger.warning(f"GoSec produced no output. stderr: {stderr[:500]}")
         return []
 
     @classmethod
@@ -183,24 +197,38 @@ class ScanService:
         """
         logger.info(f"Running vulnerability scan on {repo_path}")
 
-        result = run_docker_scanner(
-            image=settings.TRIVY_IMAGE,
-            command_args=[
+        if settings.USE_LOCAL_TRIVY:
+            import subprocess
+            cmd = [
+                "trivy",
                 "fs",
                 "--format", "json",
                 "--severity", "CRITICAL,HIGH,MEDIUM,LOW",
                 "--scanners", "vuln",
-                "/src",
-            ],
-            volumes={repo_path: "/src"},
-            timeout=600,
-        )
+                repo_path,
+            ]
+            proc_result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+            stdout, stderr = proc_result.stdout, proc_result.stderr
+        else:
+            result = run_docker_scanner(
+                image=settings.TRIVY_IMAGE,
+                command_args=[
+                    "fs",
+                    "--format", "json",
+                    "--severity", "CRITICAL,HIGH,MEDIUM,LOW",
+                    "--scanners", "vuln",
+                    "/src",
+                ],
+                volumes={repo_path: "/src"},
+                timeout=600,
+            )
+            stdout, stderr = result.stdout, result.stderr
 
-        if result.stdout:
-            output = parse_json_output(result.stdout)
+        if stdout:
+            output = parse_json_output(stdout)
             return parse_trivy_results(output)
 
-        logger.warning(f"Trivy produced no output. stderr: {result.stderr[:500]}")
+        logger.warning(f"Trivy produced no output. stderr: {stderr[:500]}")
         return []
 
     @staticmethod
@@ -216,24 +244,38 @@ class ScanService:
         """
         logger.info(f"Running secret scan on {repo_path}")
 
-        result = run_docker_scanner(
-            image=settings.TRUFFLEHOG_IMAGE,
-            command_args=[
+        if settings.USE_LOCAL_TRUFFLEHOG:
+            import subprocess
+            cmd = [
+                "trufflehog",
                 "filesystem",
                 "--json",
                 "--no-update",
-                "/src",
-            ],
-            volumes={repo_path: "/src"},
-            timeout=600,
-        )
+                repo_path,
+            ]
+            proc_result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+            stdout, stderr = proc_result.stdout, proc_result.stderr
+        else:
+            result = run_docker_scanner(
+                image=settings.TRUFFLEHOG_IMAGE,
+                command_args=[
+                    "filesystem",
+                    "--json",
+                    "--no-update",
+                    "/src",
+                ],
+                volumes={repo_path: "/src"},
+                timeout=600,
+            )
+            stdout, stderr = result.stdout, result.stderr
 
-        if result.stdout:
-            results = parse_json_stream(result.stdout)
+        if stdout:
+            results = parse_json_stream(stdout)
             return parse_trufflehog_results(results)
 
-        logger.warning(f"TruffleHog produced no output. stderr: {result.stderr[:500]}")
+        logger.warning(f"TruffleHog produced no output. stderr: {stderr[:500]}")
         return []
+
 
     @classmethod
     def execute_scan(cls, scan_type: str, repo_path: str) -> list[dict]:

@@ -172,6 +172,7 @@ export interface SystemSettings {
   telegram_bot_api_url: string | null;
   telegram_api_id: string | null;
   telegram_api_hash: string | null;
+  telegram_notifications_enabled?: boolean;
   opengrep_image: string;
   trivy_image: string;
   trufflehog_image: string;
@@ -185,6 +186,7 @@ export interface SystemSettingsUpdate {
   telegram_bot_api_url?: string;
   telegram_api_id?: string;
   telegram_api_hash?: string;
+  telegram_notifications_enabled?: boolean;
   opengrep_image?: string;
   trivy_image?: string;
   trufflehog_image?: string;

@@ -173,6 +173,24 @@ def _send_scan_completed_notification(project: Project, scan: Scan, session: Ses
 
         file_line = f"\n• <b>Tệp quét (ZIP):</b> <code>{escape_html(filename_str)}</code>" if filename_str else ""
 
+        # Build scanner diagnostics section
+        diag_lines = ""
+        scanner_diagnostics = summary.get("scanner_diagnostics", {})
+        if scanner_diagnostics:
+            lines = []
+            for scanner_name, tool_info in scanner_diagnostics.items():
+                if tool_info.get("ran") is False:
+                    lines.append(f"  ⏭️ <i>{escape_html(scanner_name)}</i> — Bỏ qua ({escape_html(tool_info.get('reason', 'N/A'))})")
+                elif tool_info.get("success"):
+                    n = tool_info.get("findings", 0)
+                    lines.append(f"  ✅ <i>{escape_html(scanner_name)}</i> — OK ({n} findings)")
+                else:
+                    err = escape_html(str(tool_info.get("error", "Unknown error"))[:120])
+                    lines.append(f"  ⚠️ <i>{escape_html(scanner_name)}</i> — Lỗi: <code>{err}</code>")
+            diag_lines = "\n\n🔧 <b>Trạng thái công cụ:</b>\n" + "\n".join(lines)
+
+
+
         msg = (
             f"✅ <b>[SCA Platform] Quét hoàn thành thành công</b>\n\n"
             f"• <b>Dự án:</b> <b>{escape_html(project.name)}</b>{file_line}\n"
@@ -184,7 +202,9 @@ def _send_scan_completed_notification(project: Project, scan: Scan, session: Ses
             f"  🟡 <i>Medium:</i> {medium}\n"
             f"  🔵 <i>Low:</i> {low}\n"
             f"  ⚪ <i>Info:</i> {info}"
+            f"{diag_lines}"
         )
+
 
         inline_keyboard = [
             [
@@ -379,9 +399,16 @@ def _apply_baseline_management(session: Session, project_id: str, finding_dicts:
 # Helper: combined scan execution
 # ──────────────────────────────────────────────────────────────
 
-def _execute_combined_scan(session: Session, scan: Scan, source_path: str, project: Project) -> list[dict]:
-    """Execute a combined scan based on project's enabled scanners."""
+def _execute_combined_scan(
+    session: Session, scan: Scan, source_path: str, project: Project
+) -> tuple[list[dict], list[dict]]:
+    """Execute a combined scan based on project's enabled scanners.
+    
+    Returns:
+        (finding_dicts, all_scanner_results)
+    """
     finding_dicts: list[dict] = []
+    all_scanner_results: list[dict] = []
     scanners = project.enabled_scanners or ["secret", "vulnerability", "sast"]
 
     scanner_map = {
@@ -395,11 +422,13 @@ def _execute_combined_scan(session: Session, scan: Scan, source_path: str, proje
             progress, msg, fn = scanner_map[scanner_key]
             _update_progress(session, scan, progress, msg)
             try:
-                finding_dicts.extend(fn(source_path))
+                findings, scanner_results = fn(source_path)
+                finding_dicts.extend(findings)
+                all_scanner_results.extend(scanner_results)
             except Exception as e:
                 logger.error(f"{scanner_key.capitalize()} scan failed: {e}")
 
-    return finding_dicts
+    return finding_dicts, all_scanner_results
 
 
 # ──────────────────────────────────────────────────────────────
@@ -523,16 +552,18 @@ def _execute_scan_pipeline(
         # 8. Rescan optimization
         should_skip, prev_finding_dicts = handle_rescan_optimization(session, scan, source_path, scan_type)
 
+        scanner_results: list[dict] = []
+
         if should_skip:
             _update_progress(session, scan, 60, "Restoring findings from identical previous scan...")
             finding_dicts = prev_finding_dicts
         else:
             if scan_type == "combined":
-                finding_dicts = _execute_combined_scan(session, scan, source_path, project)
+                finding_dicts, scanner_results = _execute_combined_scan(session, scan, source_path, project)
             else:
                 _update_progress(session, scan, 40, f"Running {scan_type} analysis...")
                 logger.info(f"Executing {scan_type} scan for project {project.name}")
-                finding_dicts = ScanService.execute_scan(scan_type, source_path)
+                finding_dicts, scanner_results = ScanService.execute_scan(scan_type, source_path)
 
         # 9. Process and save findings
         _update_progress(session, scan, 70, "Processing findings...")
@@ -542,9 +573,24 @@ def _execute_scan_pipeline(
         if not should_skip:
             compute_and_save_findings_diff(session, scan, added_findings)
 
-        # 10. Finalize
+        # 10. Finalize — build scanner_diagnostics dict for summary
+        diag: dict[str, dict] = {}
+        for sr in scanner_results:
+            name = sr.get("scanner", "Unknown")
+            if sr.get("ran") is False:
+                diag[name] = {"ran": False, "reason": sr.get("reason", "Skipped")}
+            else:
+                diag[name] = {
+                    "ran": True,
+                    "success": sr.get("success", False),
+                    "findings": len(sr.get("findings", [])),
+                    "exit_code": sr.get("exit_code"),
+                    "files_scanned": sr.get("files_scanned", 0),
+                    "error": sr.get("error"),
+                }
+
         _update_progress(session, scan, 90, "Finalizing results...")
-        _finalize_scan(session, scan, findings_saved, severity_counts)
+        _finalize_scan(session, scan, findings_saved, severity_counts, extra_summary={"scanner_diagnostics": diag} if diag else None)
 
         # 11. Telegram success notification
         _send_scan_completed_notification(project, scan, session)

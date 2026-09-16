@@ -62,6 +62,15 @@ async def sync_settings_to_config(db: AsyncSession):
             settings.MAX_CONCURRENT_SCANS = int(db_settings["MAX_CONCURRENT_SCANS"])
         except ValueError:
             pass
+    if "TELEGRAM_NOTIFICATIONS_ENABLED" in db_settings:
+        settings.TELEGRAM_NOTIFICATIONS_ENABLED = db_settings["TELEGRAM_NOTIFICATIONS_ENABLED"].lower() in ("true", "1", "yes")
+
+    try:
+        from utils.telegram import get_telegram_credentials
+        get_telegram_credentials._cache = None
+        get_telegram_credentials._cache_time = 0
+    except Exception:
+        pass
 
 
 @router.get("", response_model=SystemSettingsResponse)
@@ -79,6 +88,7 @@ async def get_system_settings(
         telegram_bot_api_url=settings.TELEGRAM_BOT_API_URL,
         telegram_api_id=settings.TELEGRAM_API_ID,
         telegram_api_hash=settings.TELEGRAM_API_HASH,
+        telegram_notifications_enabled=settings.TELEGRAM_NOTIFICATIONS_ENABLED,
         opengrep_image=settings.OPENGREP_IMAGE,
         trivy_image=settings.TRIVY_IMAGE,
         trufflehog_image=settings.TRUFFLEHOG_IMAGE,
@@ -114,6 +124,8 @@ async def update_system_settings(
         updates["TRUFFLEHOG_IMAGE"] = data.trufflehog_image.strip()
     if data.max_concurrent_scans is not None:
         updates["MAX_CONCURRENT_SCANS"] = str(data.max_concurrent_scans)
+    if data.telegram_notifications_enabled is not None:
+        updates["TELEGRAM_NOTIFICATIONS_ENABLED"] = str(data.telegram_notifications_enabled).lower()
 
     for k, v in updates.items():
         res = await db.execute(select(SystemSetting).where(SystemSetting.key == k))
@@ -133,6 +145,7 @@ async def update_system_settings(
         telegram_bot_api_url=settings.TELEGRAM_BOT_API_URL,
         telegram_api_id=settings.TELEGRAM_API_ID,
         telegram_api_hash=settings.TELEGRAM_API_HASH,
+        telegram_notifications_enabled=settings.TELEGRAM_NOTIFICATIONS_ENABLED,
         opengrep_image=settings.OPENGREP_IMAGE,
         trivy_image=settings.TRIVY_IMAGE,
         trufflehog_image=settings.TRUFFLEHOG_IMAGE,

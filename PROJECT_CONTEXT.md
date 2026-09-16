@@ -71,33 +71,98 @@
 
 ```
 SCA/
-├── docker-compose.yml           # Configuration for Postgres, Redis, Backend, Worker, Frontend, Telegram API
-├── PROJECT_CONTEXT.md           # Master documentation file for AI context
+├── docker-compose.yml              # Configuration for Postgres, Redis, Backend, Worker, Frontend, Telegram API
+├── PROJECT_CONTEXT.md              # Master documentation file for AI context
+├── start_all.ps1 / start_all.bat   # Script khởi động toàn bộ services local (non-Docker)
+├── stop_all.ps1 / stop_all.bat     # Script dừng toàn bộ services local
+├── view_logs.ps1 / view_logs.bat   # Script xem logs từng service
+├── tools/                          # Công cụ scanner binary & data chạy local trên Windows
+│   ├── scanners/                   # Binary scanner Windows
+│   │   ├── opengrep.exe            # OpenGrep binary (Windows)
+│   │   ├── trufflehog.exe          # TruffleHog binary (Windows)
+│   │   └── docs/                   # Tài liệu scanner
+│   ├── logs/                       # Logs của các services khi chạy local
+│   ├── pgsql/                      # PostgreSQL data directory (local)
+│   └── redis/                      # Redis data directory (local)
 ├── backend/
-│   ├── main.py                  # FastAPI Entry point & Middleware setup
-│   ├── config.py                # Pydantic Settings & Environment Variables
-│   ├── api/                     # REST API Layer
-│   │   ├── deps.py              # Auth & DB Dependencies
-│   │   ├── error_handlers.py    # Global Exception Handlers
-│   │   └── routes/              # API Endpoints (auth, projects, scans, findings, dashboard, settings, webhooks)
-│   ├── core/                    # Core utilities (logging, cache, security, rate limit)
-│   ├── db/                      # Database session & Base model
-│   ├── models/                  # SQLAlchemy ORM Models (Project, Scan, Finding, User, Setting)
-│   ├── schemas/                 # Pydantic schemas for request/response validation
-│   ├── services/                # Business logic & Scanner orchestration
-│   │   ├── scan_service.py      # Executes scanners & language detection
-│   │   ├── webhook_service.py   # GitHub / GitLab status updates
-│   │   └── parsers/             # JSON output parsers for Bandit, GoSec, OpenGrep, Trivy, TruffleHog
-│   ├── utils/                   # Helper functions (telegram.py, telegram_bot.py, scanner_utils.py, report_generator.py)
-│   ├── workers/                 # Celery app & background tasks (tasks.py, schedule_tasks.py, cleanup_tasks.py)
-│   └── workspace/               # Ephemeral directory for code cloning & ZIP extraction
+│   ├── main.py                     # FastAPI Entry point & Middleware setup
+│   ├── config.py                   # Pydantic Settings & Environment Variables
+│   ├── alembic/                    # Database migration scripts (Alembic)
+│   ├── alembic.ini                 # Alembic configuration
+│   ├── requirements.txt            # Python dependencies
+│   ├── Dockerfile                  # Backend Docker image definition
+│   ├── host_code/                  # Thư mục mount code local khi phát triển (thường để trống)
+│   ├── api/                        # REST API Layer
+│   │   ├── deps.py                 # Auth & DB Dependencies
+│   │   ├── error_handlers.py       # Global Exception Handlers
+│   │   └── routes/                 # API Endpoints
+│   │       ├── auth.py             # Đăng ký / đăng nhập / JWT
+│   │       ├── projects.py         # CRUD dự án
+│   │       ├── scans.py            # Trigger & quản lý scan
+│   │       ├── results.py          # Kết quả quét chi tiết, filter & pagination findings, cập nhật trạng thái finding
+│   │       ├── dashboard.py        # Thống kê tổng quan
+│   │       ├── settings.py         # Cài đặt hệ thống & người dùng
+│   │       ├── webhooks.py         # Nhận webhook từ GitHub / GitLab
+│   │       └── health.py           # Health check endpoint
+│   ├── core/                       # Core utilities
+│   │   ├── cache.py                # Redis cache helpers
+│   │   ├── exceptions.py           # Custom exception classes
+│   │   ├── logging.py              # Logging configuration
+│   │   ├── metrics.py              # Metrics collection
+│   │   ├── rate_limit.py           # Rate limiting
+│   │   ├── retry.py                # Retry logic helpers
+│   │   └── security.py             # JWT & password hashing
+│   ├── middleware/                 # FastAPI Middleware
+│   │   └── logging.py              # Request/Response logging middleware
+│   ├── db/                         # Database session & Base model
+│   ├── models/                     # SQLAlchemy ORM Models
+│   │   ├── project.py
+│   │   ├── scan.py
+│   │   ├── finding.py
+│   │   ├── user.py
+│   │   └── setting.py
+│   ├── schemas/                    # Pydantic schemas for request/response validation
+│   ├── services/                   # Business logic & Scanner orchestration
+│   │   ├── scan_service.py         # Executes scanners & language detection
+│   │   ├── webhook_service.py      # GitHub / GitLab status updates
+│   │   └── parsers/                # JSON output parsers
+│   │       ├── bandit_parser.py
+│   │       ├── gosec_parser.py
+│   │       ├── opengrep_parser.py
+│   │       ├── trivy_parser.py
+│   │       └── trufflehog_parser.py
+│   ├── utils/                      # Helper functions
+│   │   ├── telegram.py             # Telegram API helpers (gửi tin nhắn, file, pin)
+│   │   ├── telegram_bot.py         # Telegram Bot handler (commands, callbacks, ZIP upload)
+│   │   ├── scanner_utils.py        # Tiện ích chạy scanner process & parse output
+│   │   ├── report_generator.py     # Tạo báo cáo HTML
+│   │   └── path_utils.py           # Tiện ích xử lý đường dẫn file
+│   ├── workers/                    # Celery app & background tasks
+│   │   ├── celery_app.py           # Khởi tạo Celery instance & cấu hình
+│   │   ├── tasks.py                # Celery tasks chính (run_scan_task, run_zip_scan_task...)
+│   │   ├── schedule_tasks.py       # Scheduled/periodic tasks (cron scans)
+│   │   ├── cleanup_tasks.py        # Dọn dẹp workspace & dữ liệu cũ
+│   │   └── db.py                   # DB session helper cho Celery workers
+│   ├── scripts/                    # Dev & maintenance scripts
+│   │   ├── create_admin.py         # Tạo user admin ban đầu
+│   │   └── warm_cache.py           # Warm up Redis cache
+│   ├── tests/                      # Unit & integration tests (pytest + .coveragerc)
+│   └── workspace/                  # Ephemeral directory for code cloning & ZIP extraction
 ├── frontend/
 │   ├── src/
-│   │   ├── pages/               # DashboardPage, ProjectsPage, ScansPage, FindingsPage, SettingsPage, LoginPage, RegisterPage
-│   │   ├── components/          # Layout, Navigation, Modals, Tables, Charts
-│   │   ├── contexts/            # AuthContext, ThemeContext
-│   │   └── lib/                 # API Client (Axios)
-└── scripts/                     # Helper dev scripts (dev.py)
+│   │   ├── pages/                  # DashboardPage, ProjectsPage, ScansPage, FindingsPage, SettingsPage, LoginPage, RegisterPage
+│   │   ├── components/             # UI Components
+│   │   │   ├── ProjectSettingsModal.tsx
+│   │   │   ├── WebhookConfigModal.tsx
+│   │   │   ├── ProtectedRoute.tsx
+│   │   │   ├── UserProfile.tsx
+│   │   │   ├── dashboard/          # Dashboard-specific components
+│   │   │   ├── layout/             # Layout components (Sidebar, Header...)
+│   │   │   └── scans/              # Scan-related components
+│   │   ├── contexts/               # AuthContext, ThemeContext
+│   │   ├── types/                  # TypeScript type definitions (index.ts)
+│   │   └── lib/                    # API Client (Axios)
+└── scripts/                        # Helper dev scripts (dev.py)
 ```
 
 ---
@@ -166,6 +231,11 @@ SCA/
 - Upload trực tiếp file `.zip` mã nguồn -> Tự động giải nén, tạo dự án và kích hoạt Combined Scan.
 - Menu điều hướng Callback Buttons: Chọn dự án, Chọn kiểu quét (`Combined`, `SAST`, `Vulnerability`, `Secret`), Rescan, Xóa dự án.
 - Tự động tạo Telegram Forum Topic riêng cho từng dự án để quản lý thông báo gọn gàng.
+
+### 5.3 Route `results.py` — Kết quả Quét Chi tiết
+- Endpoint phục vụ filtering & pagination findings theo `scan_id`.
+- Hỗ trợ filter theo severity, status, detector_type, keyword search.
+- Endpoint cập nhật trạng thái finding: `ignore`, `resolve`, `false_positive`.
 
 ---
 

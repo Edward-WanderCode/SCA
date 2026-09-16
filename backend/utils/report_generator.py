@@ -102,6 +102,57 @@ def generate_html_report(project, scan, findings) -> str:
         </div>
         """
 
+    # Build Scanner Status HTML
+    scanner_status_html = ""
+    scanner_diagnostics = (scan.summary or {}).get("scanner_diagnostics", {}) if hasattr(scan, "summary") else {}
+    if scanner_diagnostics:
+        tool_rows = ""
+        has_error = False
+        for tool_name, info in scanner_diagnostics.items():
+            if info.get("ran") is False:
+                status_cell = f'<span style="color:#9ca3af; font-size:0.85rem;">⏭️ Bỏ qua — {html.escape(info.get("reason", "N/A"))}</span>'
+                badge_class = "tool-skip"
+            elif info.get("success"):
+                n = info.get("findings", 0)
+                files = info.get("files_scanned", 0)
+                files_txt = f" &middot; {files} file" if files else ""
+                status_cell = f'<span style="color:#10b981;">✅ OK</span> <span style="color:#6b7280; font-size:0.8rem;">({n} findings{files_txt})</span>'
+                badge_class = "tool-ok"
+            else:
+                err = html.escape(str(info.get("error", "Unknown error"))[:200])
+                status_cell = f'<span style="color:#ef4444;">⚠️ Lỗi</span> <span style="color:#fca5a5; font-size:0.8rem; font-family: monospace;">{err}</span>'
+                badge_class = "tool-error"
+                has_error = True
+
+            exit_code = info.get("exit_code")
+            exit_badge = f' <span style="color:#6b7280; font-size:0.75rem;">(exit {exit_code})</span>' if exit_code is not None and exit_code != 0 else ""
+
+            tool_rows += f"""
+            <tr class="{badge_class}">
+                <td style="font-weight: 600; color: var(--text-primary); padding: 10px 14px;">{html.escape(tool_name)}</td>
+                <td style="padding: 10px 14px;">{status_cell}{exit_badge}</td>
+            </tr>"""
+
+        section_color = "rgba(239,68,68,0.08)" if has_error else "rgba(16,185,129,0.06)"
+        border_color = "rgba(239,68,68,0.3)" if has_error else "rgba(16,185,129,0.2)"
+        scanner_status_html = f"""
+        <!-- Scanner Status Section -->
+        <div style="margin-bottom: 28px; background: {section_color}; border: 1px solid {border_color}; border-radius: 12px; padding: 20px;">
+            <h2 class="section-title" style="margin-bottom: 12px; font-size: 1rem;">
+                <span>🔧</span> Trạng thái công cụ quét
+            </h2>
+            <table style="width: 100%; border-collapse: collapse;">
+                <thead>
+                    <tr style="border-bottom: 1px solid var(--border-primary);">
+                        <th style="text-align: left; padding: 8px 14px; font-size: 0.8rem; color: var(--text-muted); font-weight: 500;">Công cụ</th>
+                        <th style="text-align: left; padding: 8px 14px; font-size: 0.8rem; color: var(--text-muted); font-weight: 500;">Kết quả</th>
+                    </tr>
+                </thead>
+                <tbody>{tool_rows}</tbody>
+            </table>
+        </div>"""
+
+
     # HTML template with embedded styling
     html_content = f"""<!DOCTYPE html>
 <html lang="vi">
@@ -111,6 +162,7 @@ def generate_html_report(project, scan, findings) -> str:
     <title>SCA Security Report - {html.escape(project.name)}</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
+
         :root {{
             --bg-primary: #0b0f19;
             --bg-secondary: #111827;
@@ -545,21 +597,34 @@ def generate_html_report(project, scan, findings) -> str:
 
         {affected_files_html}
 
+        {scanner_status_html}
+
         <!-- Findings List -->
         <h2 class="section-title">
             <span>🛡️</span> Chi tiết các lỗ hổng ({total_findings})
         </h2>
 
+
         <div class="findings-list">
             """
 
     if not sorted_findings:
-        html_content += """
+        tools_ok_note = ""
+        if scanner_diagnostics:
+            ok_tools = [name for name, info in scanner_diagnostics.items() if info.get("success") and info.get("ran") is not False]
+            err_tools = [name for name, info in scanner_diagnostics.items() if info.get("ran") is not False and not info.get("success")]
+            if err_tools:
+                tools_ok_note = f'<p style="color:#fca5a5; margin-top: 8px; font-size: 0.875rem;">⚠️ Lưu ý: <strong>{html.escape(", ".join(err_tools))}</strong> gặp lỗi trong khi quét. Kết quả có thể chưa đầy đủ.</p>'
+            elif ok_tools:
+                tools_ok_note = f'<p style="color:#6b7280; margin-top: 8px; font-size: 0.875rem;">✅ Đã xác nhận: {html.escape(", ".join(ok_tools))} hoạt động bình thường.</p>'
+        html_content += f"""
             <div class="no-findings">
                 <div class="no-findings-title">✓ Không phát hiện lỗ hổng an ninh nào</div>
                 <p>Mã nguồn sạch! Không tìm thấy lỗ hổng SAST, dependencies (SCA) hay hardcoded secrets nào trong đợt quét này.</p>
+                {tools_ok_note}
             </div>
         """
+
     else:
         for idx, f in enumerate(sorted_findings, 1):
             sev = f.severity.value if hasattr(f.severity, "value") else str(f.severity).lower()

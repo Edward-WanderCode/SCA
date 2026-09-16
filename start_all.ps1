@@ -95,15 +95,11 @@ Write-Host "============================================================" -Foreg
 
 Start-Process "http://localhost:3000"
 
-Write-Host "`nBam phim [Q] de dung he thong, hoac dong cua so nay (dich vu van chay ngam):"
-while ($true) {
-    if ([Console]::KeyAvailable) {
-        $key = [Console]::ReadKey($true)
-        if ($key.Key -eq [ConsoleKey]::Q) {
-            Write-Host "`nDang dung he thong..." -ForegroundColor Red
-            & (Join-Path $RootDir "stop_all.ps1")
-            break
-        }
-    }
-    Start-Sleep -Milliseconds 500
+Write-Host "`nBam phim [Q] de dung he thong, hoac dong cua so nay (dich vu van chay ngam):" -ForegroundColor Yellow
+
+# Dung choice.exe - hoat dong chinh xac khi chay tu bat va powershell
+$choice = & choice.exe /C Q /N
+if ($LASTEXITCODE -eq 1) {
+    Write-Host "`nDang dung he thong..." -ForegroundColor Red
+    & (Join-Path $RootDir "stop_all.ps1")
 }

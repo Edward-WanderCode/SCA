@@ -35,6 +35,11 @@ def get_telegram_api_base_url() -> str:
     return base.rstrip('/')
 
 
+def is_telegram_enabled() -> bool:
+    """Return True if Telegram notifications are enabled (checked from settings, which syncs from DB)."""
+    return getattr(settings, 'TELEGRAM_NOTIFICATIONS_ENABLED', True)
+
+
 def escape_html(text: str) -> str:
     """
     Escape special characters for Telegram HTML parse mode.
@@ -127,6 +132,10 @@ def send_telegram_notification(
     Send a message to the configured Telegram chat/topic.
     Uses HTML parse mode.
     """
+    if not is_telegram_enabled():
+        logger.info("Telegram notification skipped: notifications are disabled via settings.")
+        return None
+
     token, chat_id, default_thread_id = get_telegram_credentials()
 
     if not token or not chat_id:
@@ -238,6 +247,10 @@ def send_telegram_document(
     """
     Send a document file to the configured Telegram chat/topic.
     """
+    if not is_telegram_enabled():
+        logger.info("Telegram document send skipped: notifications are disabled via settings.")
+        return None
+
     token, chat_id, default_thread_id = get_telegram_credentials()
 
     if not token or not chat_id:

@@ -68,6 +68,7 @@ class Settings(BaseSettings):
     TELEGRAM_BOT_API_URL: str = "https://api.telegram.org"
     TELEGRAM_API_ID: Optional[str] = None
     TELEGRAM_API_HASH: Optional[str] = None
+    TELEGRAM_NOTIFICATIONS_ENABLED: bool = True
 
 
     # CORS

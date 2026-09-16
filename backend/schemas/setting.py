@@ -12,6 +12,7 @@ class SystemSettingsResponse(BaseModel):
     telegram_bot_api_url: Optional[str] = "http://telegram-bot-api:8081"
     telegram_api_id: Optional[str] = None
     telegram_api_hash: Optional[str] = None
+    telegram_notifications_enabled: bool = True
     opengrep_image: str = "opengrep/opengrep:latest"
     trivy_image: str = "aquasec/trivy:latest"
     trufflehog_image: str = "trufflesecurity/trufflehog:latest"
@@ -26,6 +27,7 @@ class SystemSettingsUpdate(BaseModel):
     telegram_bot_api_url: Optional[str] = None
     telegram_api_id: Optional[str] = None
     telegram_api_hash: Optional[str] = None
+    telegram_notifications_enabled: Optional[bool] = None
     opengrep_image: Optional[str] = None
     trivy_image: Optional[str] = None
     trufflehog_image: Optional[str] = None

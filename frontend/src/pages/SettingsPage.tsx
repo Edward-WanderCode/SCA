@@ -34,6 +34,7 @@ export default function SettingsPage() {
   const [telegramApiHash, setTelegramApiHash] = useState('');
   const [showToken, setShowToken] = useState(false);
   const [showApiHash, setShowApiHash] = useState(false);
+  const [telegramNotificationsEnabled, setTelegramNotificationsEnabled] = useState(true);
 
   const [opengrepImage, setOpengrepImage] = useState('opengrep/opengrep:latest');
   const [trivyImage, setTrivyImage] = useState('aquasec/trivy:latest');
@@ -55,6 +56,7 @@ export default function SettingsPage() {
       setTelegramBotApiUrl(settings.telegram_bot_api_url || 'http://telegram-bot-api:8081');
       setTelegramApiId(settings.telegram_api_id || '');
       setTelegramApiHash(settings.telegram_api_hash || '');
+      setTelegramNotificationsEnabled(settings.telegram_notifications_enabled ?? true);
       setOpengrepImage(settings.opengrep_image || 'opengrep/opengrep:latest');
       setTrivyImage(settings.trivy_image || 'aquasec/trivy:latest');
       setTrufflehogImage(settings.trufflehog_image || 'trufflesecurity/trufflehog:latest');
@@ -71,6 +73,7 @@ export default function SettingsPage() {
         telegram_bot_api_url: telegramBotApiUrl,
         telegram_api_id: telegramApiId,
         telegram_api_hash: telegramApiHash,
+        telegram_notifications_enabled: telegramNotificationsEnabled,
         opengrep_image: opengrepImage,
         trivy_image: trivyImage,
         trufflehog_image: trufflehogImage,
@@ -128,6 +131,7 @@ export default function SettingsPage() {
       setTelegramBotApiUrl(settings.telegram_bot_api_url || 'http://telegram-bot-api:8081');
       setTelegramApiId(settings.telegram_api_id || '');
       setTelegramApiHash(settings.telegram_api_hash || '');
+      setTelegramNotificationsEnabled(settings.telegram_notifications_enabled ?? true);
       setOpengrepImage(settings.opengrep_image || 'opengrep/opengrep:latest');
       setTrivyImage(settings.trivy_image || 'aquasec/trivy:latest');
       setTrufflehogImage(settings.trufflehog_image || 'trufflesecurity/trufflehog:latest');
@@ -223,18 +227,49 @@ export default function SettingsPage() {
               </p>
             </div>
           </div>
-
-          <span
-            className={`badge ${telegramBotToken && telegramChatId ? 'badge-low' : ''}`}
-            style={{
-              fontSize: '0.75rem',
-              background: telegramBotToken && telegramChatId ? 'rgba(16, 185, 129, 0.12)' : 'rgba(156, 163, 175, 0.12)',
-              color: telegramBotToken && telegramChatId ? '#10b981' : '#9ca3af',
-              border: `1px solid ${telegramBotToken && telegramChatId ? 'rgba(16, 185, 129, 0.3)' : 'rgba(156, 163, 175, 0.3)'}`,
-            }}
-          >
-            {telegramBotToken && telegramChatId ? '● CONFIGURED' : '○ NOT CONFIGURED'}
-          </span>
+          {/* Toggle Notifications on/off */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: '0.75rem', color: telegramNotificationsEnabled ? '#10b981' : '#9ca3af' }}>
+              {telegramNotificationsEnabled ? '● BẬT' : '○ TẮT'}
+            </span>
+            <button
+              id="telegram-notifications-toggle"
+              type="button"
+              onClick={() => {
+                const next = !telegramNotificationsEnabled;
+                setTelegramNotificationsEnabled(next);
+                // Auto-save this toggle immediately
+                settingsApi.update({ telegram_notifications_enabled: next }).catch(() => {});
+              }}
+              style={{
+                position: 'relative',
+                width: 44,
+                height: 24,
+                borderRadius: 12,
+                border: 'none',
+                cursor: 'pointer',
+                background: telegramNotificationsEnabled
+                  ? 'linear-gradient(135deg, #10b981, #059669)'
+                  : 'rgba(75, 85, 99, 0.5)',
+                transition: 'background 0.25s',
+                flexShrink: 0,
+                padding: 0,
+              }}
+              title={telegramNotificationsEnabled ? 'Click để TẮT thông báo Telegram' : 'Click để BẬT thông báo Telegram'}
+            >
+              <span style={{
+                position: 'absolute',
+                top: 3,
+                left: telegramNotificationsEnabled ? 23 : 3,
+                width: 18,
+                height: 18,
+                borderRadius: '50%',
+                background: '#fff',
+                boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
+                transition: 'left 0.2s cubic-bezier(0.4,0,0.2,1)',
+              }} />
+            </button>
+          </div>
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>

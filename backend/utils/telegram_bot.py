@@ -106,6 +106,7 @@ async def start_telegram_bot_polling():
 async def handle_message(message: dict):
     """
     Filter messages that contain document uploads (ZIP/RAR/source files) and present the Start Scan button.
+    Chức năng này chỉ có tác dụng trong Topic "Bot Command".
     """
     try:
         if "document" not in message:
@@ -117,14 +118,30 @@ async def handle_message(message: dict):
         message_thread_id = message.get("message_thread_id")
         target_thread = settings.TELEGRAM_BOT_COMMAND_THREAD_ID or default_command_thread
 
-        # Process document if uploaded to target command topic or if target_thread matches or is unrestricted
-        if target_thread is None or message_thread_id == target_thread:
-            await handle_document_upload(message)
-        else:
-            # Also allow ZIP/RAR file uploads sent to any topic
-            file_name = message["document"].get("file_name", "").lower()
-            if file_name.endswith(".zip") or file_name.endswith(".rar"):
-                await handle_document_upload(message)
+        if target_thread is None:
+            logger.warning("Telegram document upload ignored: TELEGRAM_BOT_COMMAND_THREAD_ID is not configured.")
+            return
+
+        try:
+            target_thread_id = int(target_thread)
+        except (ValueError, TypeError):
+            logger.warning(f"Invalid TELEGRAM_BOT_COMMAND_THREAD_ID: {target_thread}")
+            return
+
+        try:
+            current_thread_id = int(message_thread_id) if message_thread_id is not None else None
+        except (ValueError, TypeError):
+            current_thread_id = None
+
+        # Chức năng gửi file lên Telegram để quét chỉ có tác dụng trong Topic: "Bot Command"
+        if current_thread_id != target_thread_id:
+            logger.info(
+                f"Telegram document ignored: uploaded in thread {current_thread_id}, "
+                f"scan file upload is only allowed in Bot Command topic (thread {target_thread_id})."
+            )
+            return
+
+        await handle_document_upload(message)
     except Exception as e:
         logger.exception(f"Unhandled exception in handle_message: {e}")
 

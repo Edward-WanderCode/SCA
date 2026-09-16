@@ -60,8 +60,12 @@ class ScanService:
 
         if settings.USE_LOCAL_BANDIT:
             import subprocess
-            cmd = ["bandit", "-r", ".", "-f", "json"]
-            proc_result = subprocess.run(cmd, capture_output=True, text=True, timeout=600, cwd=repo_path)
+            cmd = [settings.BANDIT_BIN, "-r", ".", "-f", "json"]
+            proc_result = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=600,
+                cwd=repo_path, encoding='utf-8', errors='replace',
+                stdin=subprocess.DEVNULL
+            )
             stdout, stderr = proc_result.stdout, proc_result.stderr
         else:
             result = run_docker_scanner(
@@ -91,8 +95,12 @@ class ScanService:
 
         if settings.USE_LOCAL_GOSEC:
             import subprocess
-            cmd = ["gosec", "-fmt=json", "./..."]
-            proc_result = subprocess.run(cmd, capture_output=True, text=True, timeout=600, cwd=repo_path)
+            cmd = [settings.GOSEC_BIN, "-fmt=json", "./..."]
+            proc_result = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=600,
+                cwd=repo_path, encoding='utf-8', errors='replace',
+                stdin=subprocess.DEVNULL
+            )
             stdout, stderr = proc_result.stdout, proc_result.stderr
         else:
             result = run_docker_scanner(
@@ -146,17 +154,62 @@ class ScanService:
         def run_opengrep():
             try:
                 logger.info(f"Running OpenGrep polyglot scan on {repo_path}")
+                exclude_patterns = [
+                    "package-lock.json", "yarn.lock", "pnpm-lock.yaml",
+                    "*.min.js", "*.min.css", "*.map",
+                ]
                 if settings.USE_LOCAL_OPENGREP:
-                    import subprocess
-                    cmd = ["opengrep", "scan", "--config", "auto", "--json", "--no-git-ignore", "."]
-                    proc_result = subprocess.run(cmd, capture_output=True, text=True, timeout=600, cwd=repo_path)
-                    stdout, stderr = proc_result.stdout, proc_result.stderr
+                    import subprocess, os
+                    cmd = [settings.OPENGREP_BIN, "scan", "--config", "auto", "--json", "--no-git-ignore"]
+                    for pat in exclude_patterns:
+                        cmd.extend(["--exclude", pat])
+                    cmd.extend(["--timeout", "30", "."])
+                    # Set env vars to prevent Rich console crash on Windows subprocess
+                    scan_env = os.environ.copy()
+                    scan_env.update({
+                        "NO_COLOR": "1",
+                        "TERM": "dumb",
+                        "CI": "1",
+                        "PYTHONUNBUFFERED": "1",
+                        "SEMGREP_SEND_METRICS": "off",
+                    })
+                    # Use Popen to ensure child processes (opengrep-core) are killed on timeout
+                    popen_kwargs = dict(
+                        stdin=subprocess.DEVNULL,
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                        text=True, cwd=repo_path, encoding='utf-8', errors='replace',
+                        env=scan_env,
+                    )
+                    if os.name == "nt":
+                        popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+                    proc = subprocess.Popen(cmd, **popen_kwargs)
+                    try:
+                        stdout, stderr = proc.communicate(timeout=120)
+                    except subprocess.TimeoutExpired:
+                        logger.warning("OpenGrep timed out after 120s, killing process tree...")
+                        try:
+                            if os.name == "nt":
+                                subprocess.run(
+                                    ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                                    capture_output=True, timeout=10,
+                                )
+                            else:
+                                import signal
+                                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                        except Exception:
+                            proc.kill()
+                        proc.wait(timeout=5)
+                        return ("OpenGrep", [])
                 else:
+                    docker_args = ["opengrep", "scan", "--config", "auto", "--json", "--no-git-ignore"]
+                    for pat in exclude_patterns:
+                        docker_args.extend(["--exclude", pat])
+                    docker_args.extend(["--timeout", "30", "/src"])
                     result = run_docker_scanner(
                         image=settings.OPENGREP_IMAGE,
-                        command_args=["opengrep", "scan", "--config", "auto", "--json", "--no-git-ignore", "/src"],
+                        command_args=docker_args,
                         volumes={repo_path: "/src"},
-                        timeout=600,
+                        timeout=300,
                     )
                     stdout, stderr = result.stdout, result.stderr
 
@@ -200,14 +253,18 @@ class ScanService:
         if settings.USE_LOCAL_TRIVY:
             import subprocess
             cmd = [
-                "trivy",
+                settings.TRIVY_BIN,
                 "fs",
                 "--format", "json",
                 "--severity", "CRITICAL,HIGH,MEDIUM,LOW",
                 "--scanners", "vuln",
                 ".",
             ]
-            proc_result = subprocess.run(cmd, capture_output=True, text=True, timeout=600, cwd=repo_path)
+            proc_result = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=600,
+                cwd=repo_path, encoding='utf-8', errors='replace',
+                stdin=subprocess.DEVNULL
+            )
             stdout, stderr = proc_result.stdout, proc_result.stderr
         else:
             result = run_docker_scanner(
@@ -247,13 +304,17 @@ class ScanService:
         if settings.USE_LOCAL_TRUFFLEHOG:
             import subprocess
             cmd = [
-                "trufflehog",
+                settings.TRUFFLEHOG_BIN,
                 "filesystem",
                 "--json",
                 "--no-update",
                 ".",
             ]
-            proc_result = subprocess.run(cmd, capture_output=True, text=True, timeout=600, cwd=repo_path)
+            proc_result = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=600,
+                cwd=repo_path, encoding='utf-8', errors='replace',
+                stdin=subprocess.DEVNULL
+            )
             stdout, stderr = proc_result.stdout, proc_result.stderr
         else:
             result = run_docker_scanner(

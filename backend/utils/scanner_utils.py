@@ -223,3 +223,6 @@ def calculate_directory_hashes(directory_path: str) -> dict[str, str]:
         
     return file_hashes
 
+
+from utils.path_utils import normalize_relative_path
+

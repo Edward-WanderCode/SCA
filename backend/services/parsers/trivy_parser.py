@@ -2,6 +2,7 @@
 
 import logging
 from models.finding import Severity
+from utils.path_utils import normalize_relative_path
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,7 @@ def parse_trivy_results(output: dict) -> list[dict]:
     results = output.get("Results", [])
 
     for result in results:
-        target_file = result.get("Target", "")
+        target_file = normalize_relative_path(result.get("Target", ""))
         pkg_type = result.get("Type", "")
         vulnerabilities = result.get("Vulnerabilities") or []
 

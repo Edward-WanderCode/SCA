@@ -1,9 +1,12 @@
 import html
 from datetime import datetime
+from utils.path_utils import normalize_relative_path
+
 
 def generate_html_report(project, scan, findings) -> str:
     """
     Generate a beautiful, standalone HTML report for a security scan.
+    Highlights relative file paths for all findings and includes an Affected Files summary.
     """
     # Count severities
     counts = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
@@ -15,7 +18,12 @@ def generate_html_report(project, scan, findings) -> str:
     total_findings = len(findings)
     scan_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     duration = f"{scan.duration_seconds}s" if scan.duration_seconds else "N/A"
-    
+    scan_type_name = (
+        scan.scan_type.value.upper()
+        if hasattr(scan, "scan_type") and hasattr(scan.scan_type, "value")
+        else str(getattr(scan, "scan_type", "COMBINED")).upper()
+    )
+
     # Sort findings: Critical -> High -> Medium -> Low -> Info
     severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
     sorted_findings = sorted(
@@ -25,14 +33,83 @@ def generate_html_report(project, scan, findings) -> str:
         )
     )
 
+    # Group findings by normalized relative file path
+    files_summary: dict[str, dict] = {}
+    for idx, f in enumerate(sorted_findings, 1):
+        rel_path = normalize_relative_path(f.file_path)
+        display_path = rel_path if rel_path else "(Cấu hình dự án / Không gắn với tệp cụ thể)"
+        if display_path not in files_summary:
+            files_summary[display_path] = {
+                "critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0,
+                "total": 0,
+                "rel_path": rel_path,
+                "first_finding_id": f"finding-{idx}",
+            }
+        sev = f.severity.value if hasattr(f.severity, "value") else str(f.severity).lower()
+        if sev in files_summary[display_path]:
+            files_summary[display_path][sev] += 1
+        files_summary[display_path]["total"] += 1
+
+    # Build Affected Files Table HTML
+    affected_files_html = ""
+    if files_summary:
+        rows_html = ""
+        for row_idx, (path_key, info) in enumerate(files_summary.items(), 1):
+            sev_badges = ""
+            for s in ("critical", "high", "medium", "low", "info"):
+                if info[s] > 0:
+                    sev_badges += f'<span class="badge badge-{s}" style="margin-right: 4px; font-size: 0.7rem; padding: 2px 6px;">{s.upper()}: {info[s]}</span>'
+
+            jump_btn = f'<a href="#{info["first_finding_id"]}" class="jump-btn">Xem chi tiết &darr;</a>'
+
+            rows_html += f"""
+            <tr>
+                <td style="color: var(--text-muted); font-size: 0.8rem; text-align: center;">{row_idx}</td>
+                <td>
+                    <code class="file-link-code">📄 {html.escape(path_key)}</code>
+                </td>
+                <td style="text-align: center;">
+                    <span class="file-count-badge">{info["total"]}</span>
+                </td>
+                <td>{sev_badges}</td>
+                <td style="text-align: right;">{jump_btn}</td>
+            </tr>
+            """
+
+        affected_files_html = f"""
+        <!-- Affected Files Summary Table -->
+        <div class="affected-files-section">
+            <h2 class="section-title" style="margin-bottom: 6px;">
+                <span>📁</span> Danh sách tệp tin chứa lỗ hổng ({len(files_summary)})
+            </h2>
+            <p class="section-subtitle">Chỉ rõ đường dẫn tương đối (Relative Path) của từng tệp trong dự án phát hiện vấn đề an ninh</p>
+            <div style="overflow-x: auto;">
+                <table class="affected-files-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 40px; text-align: center;">#</th>
+                            <th>Đường dẫn tương đối (Relative Path)</th>
+                            <th style="width: 110px; text-align: center;">Số lượng lỗi</th>
+                            <th>Mức độ nghiêm trọng</th>
+                            <th style="width: 130px; text-align: right;">Thao tác</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {rows_html}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        """
+
     # HTML template with embedded styling
     html_content = f"""<!DOCTYPE html>
-<html lang="en">
+<html lang="vi">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SCA Security Report - {html.escape(project.name)}</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
         :root {{
             --bg-primary: #0b0f19;
@@ -54,6 +131,10 @@ def generate_html_report(project, scan, findings) -> str:
             box-sizing: border-box;
             margin: 0;
             padding: 0;
+        }}
+
+        html {{
+            scroll-behavior: smooth;
         }}
 
         body {{
@@ -117,7 +198,7 @@ def generate_html_report(project, scan, findings) -> str:
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
             gap: 16px;
-            margin-bottom: 40px;
+            margin-bottom: 36px;
         }}
 
         .summary-card {{
@@ -159,7 +240,7 @@ def generate_html_report(project, scan, findings) -> str:
         .low-card {{ border-left: 4px solid var(--accent-low); }}
         .low-card .value {{ color: var(--accent-low); }}
 
-        /* Findings Section */
+        /* Section titles */
         h2.section-title {{
             font-size: 1.25rem;
             font-weight: 600;
@@ -169,6 +250,96 @@ def generate_html_report(project, scan, findings) -> str:
             gap: 8px;
         }}
 
+        .section-subtitle {{
+            font-size: 0.8125rem;
+            color: var(--text-muted);
+            margin-top: -12px;
+            margin-bottom: 16px;
+        }}
+
+        /* Affected Files Section */
+        .affected-files-section {{
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--border-primary);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 36px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.15);
+        }}
+
+        .affected-files-table {{
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.875rem;
+        }}
+
+        .affected-files-table th {{
+            text-align: left;
+            padding: 10px 14px;
+            background-color: var(--bg-tertiary);
+            color: var(--text-secondary);
+            font-weight: 600;
+            border-bottom: 1px solid var(--border-primary);
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }}
+
+        .affected-files-table td {{
+            padding: 12px 14px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+            color: var(--text-primary);
+        }}
+
+        .affected-files-table tr:hover td {{
+            background-color: rgba(255, 255, 255, 0.02);
+        }}
+
+        .file-link-code {{
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8125rem;
+            font-weight: 600;
+            color: #93c5fd;
+            background: rgba(59, 130, 246, 0.1);
+            padding: 4px 10px;
+            border-radius: 6px;
+            border: 1px solid rgba(59, 130, 246, 0.25);
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            word-break: break-all;
+        }}
+
+        .file-count-badge {{
+            display: inline-block;
+            background-color: rgba(99, 102, 241, 0.2);
+            color: #a5b4fc;
+            border: 1px solid rgba(99, 102, 241, 0.35);
+            padding: 2px 10px;
+            border-radius: 12px;
+            font-weight: 700;
+            font-size: 0.75rem;
+        }}
+
+        .jump-btn {{
+            display: inline-block;
+            color: #818cf8;
+            font-size: 0.75rem;
+            text-decoration: none;
+            font-weight: 600;
+            padding: 4px 10px;
+            border-radius: 6px;
+            background: rgba(99, 102, 241, 0.1);
+            border: 1px solid rgba(99, 102, 241, 0.2);
+            transition: all 150ms ease;
+        }}
+
+        .jump-btn:hover {{
+            background: rgba(99, 102, 241, 0.25);
+            color: #c7d2fe;
+        }}
+
+        /* Findings Section */
         .findings-list {{
             display: flex;
             flex-direction: column;
@@ -181,6 +352,7 @@ def generate_html_report(project, scan, findings) -> str:
             border-radius: 12px;
             overflow: hidden;
             box-shadow: 0 4px 6px rgba(0,0,0,0.15);
+            scroll-margin-top: 24px;
         }}
 
         .finding-header {{
@@ -229,6 +401,49 @@ def generate_html_report(project, scan, findings) -> str:
 
         .finding-body {{
             padding: 20px;
+        }}
+
+        /* Prominent File Location Box */
+        .file-location-box {{
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+            background-color: rgba(99, 102, 241, 0.08);
+            border: 1px solid rgba(99, 102, 241, 0.25);
+            border-radius: 8px;
+            padding: 10px 14px;
+            margin-bottom: 16px;
+            font-size: 0.875rem;
+        }}
+
+        .file-location-label {{
+            font-weight: 600;
+            color: #a5b4fc;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }}
+
+        .file-location-code {{
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 600;
+            color: #67e8f9;
+            background: rgba(0, 0, 0, 0.35);
+            padding: 4px 10px;
+            border-radius: 6px;
+            border: 1px solid rgba(103, 232, 249, 0.2);
+            word-break: break-all;
+        }}
+
+        .line-badge {{
+            color: #fde047;
+            font-weight: 600;
+            font-size: 0.75rem;
+            background: rgba(234, 179, 8, 0.15);
+            border: 1px solid rgba(234, 179, 8, 0.3);
+            padding: 3px 8px;
+            border-radius: 6px;
         }}
 
         .finding-meta {{
@@ -295,12 +510,12 @@ def generate_html_report(project, scan, findings) -> str:
         <header>
             <div class="header-title">
                 <h1>Security Audit Report</h1>
-                <p>Project: <strong>{html.escape(project.name)}</strong></p>
+                <p>Dự án: <strong>{html.escape(project.name)}</strong></p>
             </div>
             <div class="header-meta">
-                <div class="header-meta-item">Generated on: <strong>{scan_date}</strong></div>
-                <div class="header-meta-item">Duration: <strong>{duration}</strong></div>
-                <div class="header-meta-item">Scan Type: <strong>Full Security Scan (Combined)</strong></div>
+                <div class="header-meta-item">Thời gian xuất: <strong>{scan_date}</strong></div>
+                <div class="header-meta-item">Thời lượng: <strong>{duration}</strong></div>
+                <div class="header-meta-item">Loại quét: <strong>{scan_type_name}</strong></div>
             </div>
         </header>
 
@@ -308,7 +523,7 @@ def generate_html_report(project, scan, findings) -> str:
         <div class="summary-dashboard">
             <div class="summary-card total-card">
                 <div class="value">{total_findings}</div>
-                <div class="label">Total Issues</div>
+                <div class="label">Tổng số lỗi</div>
             </div>
             <div class="summary-card critical-card">
                 <div class="value">{counts["critical"]}</div>
@@ -328,9 +543,11 @@ def generate_html_report(project, scan, findings) -> str:
             </div>
         </div>
 
+        {affected_files_html}
+
         <!-- Findings List -->
         <h2 class="section-title">
-            <span>🛡️</span> Detailed Findings ({total_findings})
+            <span>🛡️</span> Chi tiết các lỗ hổng ({total_findings})
         </h2>
 
         <div class="findings-list">
@@ -339,43 +556,66 @@ def generate_html_report(project, scan, findings) -> str:
     if not sorted_findings:
         html_content += """
             <div class="no-findings">
-                <div class="no-findings-title">✓ No Vulnerabilities Found</div>
-                <p>Clean scan! Your project does not contain any detected security issues, dependency vulnerabilities, or hardcoded secrets.</p>
+                <div class="no-findings-title">✓ Không phát hiện lỗ hổng an ninh nào</div>
+                <p>Mã nguồn sạch! Không tìm thấy lỗ hổng SAST, dependencies (SCA) hay hardcoded secrets nào trong đợt quét này.</p>
             </div>
         """
     else:
-        for idx, f in enumerate(sorted_findings):
+        for idx, f in enumerate(sorted_findings, 1):
             sev = f.severity.value if hasattr(f.severity, "value") else str(f.severity).lower()
             rule_id = f.rule_id or "N/A"
             cve_id = f.cve_id or ""
             detector = f.detector_type or "Unknown"
-            
+
             cve_str = f" | CVE: <strong>{html.escape(cve_id)}</strong>" if cve_id else ""
-            line_str = f" (Line {f.line_start})" if f.line_start else ""
-            file_path = f.file_path or "N/A"
-            
+
+            # Line string badge
+            if f.line_start:
+                if f.line_end and f.line_end != f.line_start:
+                    line_badge = f'<span class="line-badge">Dòng {f.line_start} - {f.line_end}</span>'
+                else:
+                    line_badge = f'<span class="line-badge">Dòng {f.line_start}</span>'
+            else:
+                line_badge = ""
+
+            # Normalized relative file path
+            rel_file_path = normalize_relative_path(f.file_path)
+            display_file_path = rel_file_path if rel_file_path else "(Cấu hình dự án / Không gắn với tệp cụ thể)"
+
+            package_item = ""
+            if f.package_name:
+                package_ver = f"@{f.package_version}" if f.package_version else ""
+                package_item = f"<div>Package: <strong>{html.escape(f.package_name)}{html.escape(package_ver)}</strong></div>"
+
             html_content += f"""
-            <div class="finding-item">
+            <div class="finding-item" id="finding-{idx}">
                 <div class="finding-header">
                     <div class="finding-header-left">
                         <span class="badge badge-{sev}">{sev}</span>
-                        <span class="finding-title">{html.escape(f.title)}</span>
+                        <span class="finding-title">#{idx}. {html.escape(f.title)}</span>
                     </div>
                     <span class="detector-tag">{html.escape(detector)}</span>
                 </div>
                 <div class="finding-body">
+                    <!-- Prominent Relative File Path -->
+                    <div class="file-location-box">
+                        <span class="file-location-label">📍 Vị trí tệp (Relative Path):</span>
+                        <code class="file-location-code">{html.escape(display_file_path)}</code>
+                        {line_badge}
+                    </div>
+
                     <div class="finding-meta">
-                        <div>File: <strong>{html.escape(file_path)}{line_str}</strong></div>
-                        <div>Rule: <strong>{html.escape(rule_id)}</strong>{cve_str}</div>
+                        <div>Quy tắc (Rule): <strong>{html.escape(rule_id)}</strong>{cve_str}</div>
+                        {package_item}
                     </div>
                     <div class="finding-description">{html.escape(f.description or "No description provided.")}</div>
             """
-            
+
             if f.code_snippet:
                 html_content += f"""
                     <pre class="code-block"><code>{html.escape(f.code_snippet)}</code></pre>
                 """
-                
+
             html_content += """
                 </div>
             </div>
@@ -386,7 +626,7 @@ def generate_html_report(project, scan, findings) -> str:
 
         <!-- Footer -->
         <footer>
-            <p>SCA Platform — Standalone Static Code Analysis and Security Reports</p>
+            <p>SCA Platform — Static Code Analysis and Security Reports</p>
         </footer>
     </div>
 </body>

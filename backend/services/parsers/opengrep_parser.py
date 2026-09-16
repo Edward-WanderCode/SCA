@@ -2,6 +2,7 @@
 
 import logging
 from models.finding import Severity
+from utils.path_utils import normalize_relative_path
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +67,7 @@ def parse_opengrep_results(output: dict | list) -> list[dict]:
                 "severity": severity,
                 "title": result.get("check_id", "Unknown Rule"),
                 "description": extra.get("message", ""),
-                "file_path": result.get("path", ""),
+                "file_path": normalize_relative_path(result.get("path", "")),
                 "line_start": start.get("line"),
                 "line_end": end.get("line"),
                 "code_snippet": extra.get("lines", ""),

@@ -2,6 +2,7 @@
 
 import logging
 from models.finding import Severity
+from utils.path_utils import normalize_relative_path
 
 logger = logging.getLogger(__name__)
 
@@ -31,14 +32,8 @@ def parse_gosec_results(output: dict | list) -> list[dict]:
             cwe_id = cwe_info.get("id")
             cwe_list = [f"CWE-{cwe_id}"] if cwe_id else []
 
-            # Clean path from /src prefix
-            file_path = result.get("file", "")
-            if file_path.startswith("/src/"):
-                file_path = file_path[5:]
-            elif file_path.startswith("src/"):
-                file_path = file_path[4:]
-            elif file_path == "/src" or file_path == "src":
-                file_path = ""
+            # Clean relative path
+            file_path = normalize_relative_path(result.get("file", ""))
 
             try:
                 line_no = int(result.get("line", 1))

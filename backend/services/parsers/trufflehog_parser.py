@@ -2,6 +2,7 @@
 
 import logging
 from models.finding import Severity
+from utils.path_utils import normalize_relative_path
 
 logger = logging.getLogger(__name__)
 
@@ -61,11 +62,12 @@ def parse_trufflehog_results(results: list[dict]) -> list[dict]:
             git_meta = source_meta.get("Git", {})
 
             # Determine file path and line
-            file_path = (
+            raw_file = (
                 filesystem_meta.get("file", "")
                 or git_meta.get("file", "")
                 or ""
             )
+            file_path = normalize_relative_path(raw_file)
             line = (
                 filesystem_meta.get("line")
                 or git_meta.get("line")

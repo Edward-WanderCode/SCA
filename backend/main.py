@@ -76,10 +76,11 @@ app.add_middleware(LoggingMiddleware)
 from middleware import SecurityHeadersMiddleware
 app.add_middleware(SecurityHeadersMiddleware)
 
-# CORS Middleware — hardened with explicit methods and headers
+# CORS Middleware — hardened with explicit methods and headers, supports Radmin VPN & LAN
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|26\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+)(:\d+)?$",
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Accept"],
@@ -107,4 +108,12 @@ app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"]
 app.include_router(health.router, prefix="/api", tags=["Health & Metrics"])
 app.include_router(webhooks.router, prefix="/api/webhooks", tags=["Webhooks"])
 app.include_router(settings_routes.router, prefix="/api/settings", tags=["Settings"])
+
+
+from fastapi.responses import RedirectResponse
+
+@app.get("/", include_in_schema=False)
+@app.get("/docs", include_in_schema=False)
+async def redirect_to_docs():
+    return RedirectResponse(url="/api/docs")
 

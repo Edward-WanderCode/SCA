@@ -17,6 +17,7 @@ from models.finding import Finding
 from models.project import Project
 from services.scan_service import ScanService
 from utils.scanner_utils import clone_repository, cleanup_workspace
+from utils.path_utils import normalize_relative_path
 from utils.telegram import (
     send_telegram_notification,
     send_telegram_document,
@@ -82,7 +83,7 @@ def _save_findings_to_db(
             severity=fd["severity"],
             title=fd["title"],
             description=fd.get("description"),
-            file_path=fd.get("file_path"),
+            file_path=normalize_relative_path(fd.get("file_path")) if fd.get("file_path") else None,
             line_start=fd.get("line_start"),
             line_end=fd.get("line_end"),
             code_snippet=fd.get("code_snippet"),

@@ -49,8 +49,16 @@ class Settings(BaseSettings):
     USE_LOCAL_TRUFFLEHOG: bool = True
     USE_LOCAL_BANDIT: bool = True
     USE_LOCAL_GOSEC: bool = True
-    SCAN_WORKSPACE_DIR: str = "/app/workspace"
-    HOST_CODE_DIR: str = "/app/host_code"
+
+    # Scanner binary paths (absolute or relative to PATH)
+    OPENGREP_BIN: str = "opengrep"
+    TRIVY_BIN: str = "trivy"
+    TRUFFLEHOG_BIN: str = "trufflehog"
+    BANDIT_BIN: str = "bandit"
+    GOSEC_BIN: str = "gosec"
+
+    SCAN_WORKSPACE_DIR: str = "./workspace"
+    HOST_CODE_DIR: str = "./"
     MAX_CONCURRENT_SCANS: int = 6
 
     # Telegram
@@ -68,6 +76,8 @@ class Settings(BaseSettings):
         "http://localhost:5173",
         "http://127.0.0.1:3000",
         "http://127.0.0.1:5173",
+        "http://26.174.174.177:3000",
+        "http://26.174.174.177:8000",
     ]
 
     # CI/CD Webhooks
@@ -75,7 +85,7 @@ class Settings(BaseSettings):
     GITLAB_TOKEN: Optional[str] = None
 
     model_config = {
-        "env_file": ".env",
+        "env_file": [str(__import__("pathlib").Path(__file__).resolve().parent / ".env"), ".env"],
         "env_file_encoding": "utf-8",
         "case_sensitive": True,
     }

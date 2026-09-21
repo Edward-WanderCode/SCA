@@ -29,6 +29,7 @@ export default function SettingsPage() {
   const [telegramBotToken, setTelegramBotToken] = useState('');
   const [telegramChatId, setTelegramChatId] = useState('');
   const [telegramCommandThreadId, setTelegramCommandThreadId] = useState<number | ''>(306);
+  const [telegramZipUploadThreadId, setTelegramZipUploadThreadId] = useState<number | ''>('');
   const [telegramBotApiUrl, setTelegramBotApiUrl] = useState('http://telegram-bot-api:8081');
   const [telegramApiId, setTelegramApiId] = useState('');
   const [telegramApiHash, setTelegramApiHash] = useState('');
@@ -53,6 +54,7 @@ export default function SettingsPage() {
       setTelegramBotToken(settings.telegram_bot_token || '');
       setTelegramChatId(settings.telegram_chat_id || '');
       setTelegramCommandThreadId(settings.telegram_bot_command_thread_id ?? 306);
+      setTelegramZipUploadThreadId(settings.telegram_zip_upload_thread_id ?? '');
       setTelegramBotApiUrl(settings.telegram_bot_api_url || 'http://telegram-bot-api:8081');
       setTelegramApiId(settings.telegram_api_id || '');
       setTelegramApiHash(settings.telegram_api_hash || '');
@@ -70,6 +72,7 @@ export default function SettingsPage() {
         telegram_bot_token: telegramBotToken,
         telegram_chat_id: telegramChatId,
         telegram_bot_command_thread_id: telegramCommandThreadId !== '' ? Number(telegramCommandThreadId) : undefined,
+        telegram_zip_upload_thread_id: telegramZipUploadThreadId !== '' ? Number(telegramZipUploadThreadId) : undefined,
         telegram_bot_api_url: telegramBotApiUrl,
         telegram_api_id: telegramApiId,
         telegram_api_hash: telegramApiHash,
@@ -308,24 +311,25 @@ export default function SettingsPage() {
             </span>
           </div>
 
-          {/* Chat ID & Thread ID in 2 columns */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-            <div>
-              <label style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 6 }}>
-                Telegram Chat ID / Group ID
-              </label>
-              <input
-                className="input"
-                placeholder="Ví dụ: -1001234567890"
-                value={telegramChatId}
-                onChange={(e) => setTelegramChatId(e.target.value)}
-                style={{ fontFamily: "'JetBrains Mono', monospace" }}
-              />
-              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 4, display: 'block' }}>
-                ID của Chat nhóm hoặc Kênh Forum Telegram nhận thông báo
-              </span>
-            </div>
+          {/* Chat ID */}
+          <div>
+            <label style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 6 }}>
+              Telegram Chat ID / Group ID
+            </label>
+            <input
+              className="input"
+              placeholder="Ví dụ: -1001234567890"
+              value={telegramChatId}
+              onChange={(e) => setTelegramChatId(e.target.value)}
+              style={{ fontFamily: "'JetBrains Mono', monospace" }}
+            />
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 4, display: 'block' }}>
+              ID của Chat nhóm hoặc Kênh Forum Telegram nhận thông báo
+            </span>
+          </div>
 
+          {/* Topics configuration in 2 columns */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
             <div>
               <label style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 6 }}>
                 Bot Command Thread ID (Topic)
@@ -339,7 +343,24 @@ export default function SettingsPage() {
                 style={{ fontFamily: "'JetBrains Mono', monospace" }}
               />
               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 4, display: 'block' }}>
-                Thread/Topic ID chuyên biệt dùng cho lệnh điều khiển Bot
+                Thread/Topic ID chuyên biệt dùng cho lệnh điều khiển Bot (/scan)
+              </span>
+            </div>
+
+            <div>
+              <label style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 6 }}>
+                Zip File Upload Thread ID (Topic)
+              </label>
+              <input
+                className="input"
+                type="number"
+                placeholder="Ví dụ: 450"
+                value={telegramZipUploadThreadId}
+                onChange={(e) => setTelegramZipUploadThreadId(e.target.value ? Number(e.target.value) : '')}
+                style={{ fontFamily: "'JetBrains Mono', monospace" }}
+              />
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 4, display: 'block' }}>
+                Thread/Topic ID chuyên biệt dùng để người dùng tải lên file ZIP mã nguồn
               </span>
             </div>
           </div>

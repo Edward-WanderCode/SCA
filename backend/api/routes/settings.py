@@ -35,6 +35,12 @@ async def sync_settings_to_config(db: AsyncSession):
             settings.TELEGRAM_BOT_COMMAND_THREAD_ID = int(val) if val else 306
         except ValueError:
             pass
+    if "TELEGRAM_ZIP_UPLOAD_THREAD_ID" in db_settings:
+        try:
+            val = db_settings["TELEGRAM_ZIP_UPLOAD_THREAD_ID"]
+            settings.TELEGRAM_ZIP_UPLOAD_THREAD_ID = int(val) if val else None
+        except ValueError:
+            pass
     if "TELEGRAM_BOT_API_URL" in db_settings and db_settings["TELEGRAM_BOT_API_URL"]:
         settings.TELEGRAM_BOT_API_URL = db_settings["TELEGRAM_BOT_API_URL"]
     if "TELEGRAM_API_ID" in db_settings:
@@ -85,6 +91,7 @@ async def get_system_settings(
         telegram_bot_token=settings.TELEGRAM_BOT_TOKEN,
         telegram_chat_id=settings.TELEGRAM_CHAT_ID,
         telegram_bot_command_thread_id=settings.TELEGRAM_BOT_COMMAND_THREAD_ID,
+        telegram_zip_upload_thread_id=settings.TELEGRAM_ZIP_UPLOAD_THREAD_ID,
         telegram_bot_api_url=settings.TELEGRAM_BOT_API_URL,
         telegram_api_id=settings.TELEGRAM_API_ID,
         telegram_api_hash=settings.TELEGRAM_API_HASH,
@@ -110,6 +117,8 @@ async def update_system_settings(
         updates["TELEGRAM_CHAT_ID"] = data.telegram_chat_id.strip()
     if data.telegram_bot_command_thread_id is not None:
         updates["TELEGRAM_BOT_COMMAND_THREAD_ID"] = str(data.telegram_bot_command_thread_id)
+    if data.telegram_zip_upload_thread_id is not None:
+        updates["TELEGRAM_ZIP_UPLOAD_THREAD_ID"] = str(data.telegram_zip_upload_thread_id)
     if data.telegram_bot_api_url is not None:
         updates["TELEGRAM_BOT_API_URL"] = data.telegram_bot_api_url.strip()
     if data.telegram_api_id is not None:
@@ -142,6 +151,7 @@ async def update_system_settings(
         telegram_bot_token=settings.TELEGRAM_BOT_TOKEN,
         telegram_chat_id=settings.TELEGRAM_CHAT_ID,
         telegram_bot_command_thread_id=settings.TELEGRAM_BOT_COMMAND_THREAD_ID,
+        telegram_zip_upload_thread_id=settings.TELEGRAM_ZIP_UPLOAD_THREAD_ID,
         telegram_bot_api_url=settings.TELEGRAM_BOT_API_URL,
         telegram_api_id=settings.TELEGRAM_API_ID,
         telegram_api_hash=settings.TELEGRAM_API_HASH,

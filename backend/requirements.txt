@@ -34,6 +34,7 @@ gitpython==3.1.55
 # Utilities
 python-dotenv==1.2.2
 orjson==3.11.5
+telethon>=1.36.0
 
 # CORS
 starlette==0.45.3

@@ -82,8 +82,17 @@ def get_telegram_credentials() -> tuple[str | None, str | None, int | None]:
                         settings.TELEGRAM_BOT_COMMAND_THREAD_ID = thread_id
                     except ValueError:
                         pass
+                elif k == "TELEGRAM_ZIP_UPLOAD_THREAD_ID" and v and v.strip():
+                    try:
+                        settings.TELEGRAM_ZIP_UPLOAD_THREAD_ID = int(v.strip())
+                    except ValueError:
+                        pass
                 elif k == "TELEGRAM_BOT_API_URL" and v and v.strip():
                     settings.TELEGRAM_BOT_API_URL = v.strip()
+                elif k == "TELEGRAM_API_ID" and v and v.strip():
+                    settings.TELEGRAM_API_ID = v.strip()
+                elif k == "TELEGRAM_API_HASH" and v and v.strip():
+                    settings.TELEGRAM_API_HASH = v.strip()
     except Exception as e:
         logger.debug(f"Failed to load Telegram credentials from DB: {e}")
 
@@ -94,6 +103,19 @@ def get_telegram_credentials() -> tuple[str | None, str | None, int | None]:
     get_telegram_credentials._cache_time = time.time()
 
     return credentials
+
+
+def get_telegram_api_credentials() -> tuple[str | None, str | None]:
+    """Return (api_id, api_hash) from DB/settings."""
+    get_telegram_credentials()
+    return getattr(settings, 'TELEGRAM_API_ID', None), getattr(settings, 'TELEGRAM_API_HASH', None)
+
+
+def get_zip_upload_thread_id() -> int | None:
+    """Return the configured thread ID for ZIP file uploads."""
+    # Ensure cache/DB credentials have run
+    get_telegram_credentials()
+    return getattr(settings, 'TELEGRAM_ZIP_UPLOAD_THREAD_ID', None)
 
 
 def create_telegram_topic(project_name: str) -> int | None:

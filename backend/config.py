@@ -65,6 +65,7 @@ class Settings(BaseSettings):
     TELEGRAM_BOT_TOKEN: Optional[str] = None
     TELEGRAM_CHAT_ID: Optional[str] = None
     TELEGRAM_BOT_COMMAND_THREAD_ID: int = 306
+    TELEGRAM_ZIP_UPLOAD_THREAD_ID: Optional[int] = None
     TELEGRAM_BOT_API_URL: str = "https://api.telegram.org"
     TELEGRAM_API_ID: Optional[str] = None
     TELEGRAM_API_HASH: Optional[str] = None

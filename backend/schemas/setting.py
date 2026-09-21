@@ -9,6 +9,7 @@ class SystemSettingsResponse(BaseModel):
     telegram_bot_token: Optional[str] = None
     telegram_chat_id: Optional[str] = None
     telegram_bot_command_thread_id: Optional[int] = 306
+    telegram_zip_upload_thread_id: Optional[int] = None
     telegram_bot_api_url: Optional[str] = "http://telegram-bot-api:8081"
     telegram_api_id: Optional[str] = None
     telegram_api_hash: Optional[str] = None
@@ -24,6 +25,7 @@ class SystemSettingsUpdate(BaseModel):
     telegram_bot_token: Optional[str] = None
     telegram_chat_id: Optional[str] = None
     telegram_bot_command_thread_id: Optional[int] = None
+    telegram_zip_upload_thread_id: Optional[int] = None
     telegram_bot_api_url: Optional[str] = None
     telegram_api_id: Optional[str] = None
     telegram_api_hash: Optional[str] = None
@@ -39,6 +41,7 @@ class TelegramTestPayload(BaseModel):
     telegram_bot_token: Optional[str] = None
     telegram_chat_id: Optional[str] = None
     telegram_bot_command_thread_id: Optional[int] = None
+    telegram_zip_upload_thread_id: Optional[int] = None
     telegram_bot_api_url: Optional[str] = None
     telegram_api_id: Optional[str] = None
     telegram_api_hash: Optional[str] = None

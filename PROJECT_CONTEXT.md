@@ -210,6 +210,13 @@ SCA/
 - `detector_type` (String)
 - `status` (String: `open`, `ignored`, `resolved`, `false_positive`)
 
+### Bảng `uploaded_files` ([backend/models/uploaded_file.py](file:///d:/Code/SCA/backend/models/uploaded_file.py))
+- `id` (UUID, Primary Key)
+- `file_name` (String, Indexed) — Tên file zip tải lên
+- `telegram_file_id` (String) — File ID từ máy chủ Telegram dùng để download khi quét
+- `file_size` (Integer) — Dung lượng file
+- `created_at` / `updated_at` (DateTime)
+
 ---
 
 ## 5. Luồng xử lý chính (Core Pipelines & Features)
@@ -227,8 +234,11 @@ SCA/
    - **Thông báo Telegram & HTML Report:** Tạo báo cáo HTML đẹp mắt qua `generate_html_report()` và gửi đính kèm file trong Telegram topic riêng của dự án, đồng thời Pin tin nhắn kết quả mới nhất.
 
 ### 5.2 Tương tác qua Telegram Bot ([backend/utils/telegram_bot.py](file:///d:/Code/SCA/backend/utils/telegram_bot.py))
-- Nhận diện lệnh: `/start`, `/help`, `/projects`, `/scan`, `/stats`, `/clean`.
-- Upload trực tiếp file `.zip` mã nguồn -> Tự động giải nén, tạo dự án và kích hoạt Combined Scan.
+- **Topic "Zip file upload":** Khi người dùng tải file `.zip` lên topic này, bot tự động lưu tên file và `telegram_file_id` vào database (`uploaded_files`) hoàn toàn im lặng (không thông báo gì thêm).
+- **Topic "Bot Command":**
+  - Gõ lệnh `/scan`: Bot lập tức truy vấn danh sách các file ZIP đã tải lên và hiển thị dạng bảng nút bấm (Inline Keyboard). Bấm vào file nào sẽ tự động tải file đó về và kích hoạt quét.
+  - Hỗ trợ tra cứu Topic ID: Gõ lệnh `/topicid` hoặc `/id` ở bất kỳ topic nào để bot trả về ID topic hiện tại.
+- Upload trực tiếp file `.zip` mã nguồn tại Bot Command -> Tự động giải nén, tạo dự án và kích hoạt Combined Scan.
 - Menu điều hướng Callback Buttons: Chọn dự án, Chọn kiểu quét (`Combined`, `SAST`, `Vulnerability`, `Secret`), Rescan, Xóa dự án.
 - Tự động tạo Telegram Forum Topic riêng cho từng dự án để quản lý thông báo gọn gàng.
 
@@ -248,6 +258,8 @@ SCA/
 | `JWT_SECRET_KEY` | *(Secret String)* | Key giải mã JWT Authentication |
 | `TELEGRAM_BOT_TOKEN` | *(Token)* | Bot Token từ BotFather |
 | `TELEGRAM_CHAT_ID` | *(Chat ID)* | Supergroup Chat ID để nhận thông báo |
+| `TELEGRAM_BOT_COMMAND_THREAD_ID` | `306` | Thread ID topic "Bot Command" |
+| `TELEGRAM_ZIP_UPLOAD_THREAD_ID` | `None` | Thread ID topic "Zip file upload" |
 | `USE_LOCAL_OPENGREP` | `True` | Sử dụng binary OpenGrep cài local trên container |
 | `USE_LOCAL_TRIVY` | `True` | Sử dụng binary Trivy cài local trên container |
 | `USE_LOCAL_TRUFFLEHOG` | `True` | Sử dụng binary TruffleHog cài local trên container |

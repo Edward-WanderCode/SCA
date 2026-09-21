@@ -5,6 +5,7 @@ from models.scan import Scan, ScanType, ScanStatus
 from models.finding import Finding, Severity
 from models.user import User, UserRole
 from models.setting import SystemSetting
+from models.uploaded_file import UploadedFile
 
 __all__ = [
     "Project",
@@ -16,5 +17,6 @@ __all__ = [
     "User",
     "UserRole",
     "SystemSetting",
+    "UploadedFile",
 ]
 

@@ -105,55 +105,261 @@ async def start_telegram_bot_polling():
 
 async def handle_message(message: dict):
     """
-    Filter messages that contain document uploads (ZIP/RAR/source files) and present the Start Scan button.
-    Chức năng này chỉ có tác dụng trong Topic "Bot Command".
+    Process incoming Telegram messages:
+    1. In 'Zip file upload' topic: Silently save uploaded ZIP files (filename + file_id) to DB without notification.
+    2. In 'Bot Command' topic:
+       - Handle /scan: display interactive button list of uploaded ZIP files.
+       - Handle document upload: validate and offer Start Scan button.
+    3. Any topic:
+       - Handle /topicid or /id: display the current thread ID for easy setup.
     """
     try:
-        if "document" not in message:
-            return
-
-        from utils.telegram import get_telegram_credentials
+        from utils.telegram import get_telegram_credentials, get_zip_upload_thread_id
         _, _, default_command_thread = get_telegram_credentials()
 
         message_thread_id = message.get("message_thread_id")
-        target_thread = settings.TELEGRAM_BOT_COMMAND_THREAD_ID or default_command_thread
-
-        if target_thread is None:
-            logger.warning("Telegram document upload ignored: TELEGRAM_BOT_COMMAND_THREAD_ID is not configured.")
-            return
-
-        try:
-            target_thread_id = int(target_thread)
-        except (ValueError, TypeError):
-            logger.warning(f"Invalid TELEGRAM_BOT_COMMAND_THREAD_ID: {target_thread}")
-            return
-
         try:
             current_thread_id = int(message_thread_id) if message_thread_id is not None else None
         except (ValueError, TypeError):
             current_thread_id = None
 
-        # Chức năng gửi file lên Telegram để quét chỉ có tác dụng trong Topic: "Bot Command"
-        if current_thread_id != target_thread_id:
-            logger.info(
-                f"Telegram document ignored: uploaded in thread {current_thread_id}, "
-                f"scan file upload is only allowed in Bot Command topic (thread {target_thread_id})."
-            )
+        target_command_thread = settings.TELEGRAM_BOT_COMMAND_THREAD_ID or default_command_thread
+        zip_upload_thread = get_zip_upload_thread_id()
+
+        try:
+            command_thread_id = int(target_command_thread) if target_command_thread is not None else None
+        except (ValueError, TypeError):
+            command_thread_id = None
+
+        try:
+            zip_thread_id = int(zip_upload_thread) if zip_upload_thread is not None else None
+        except (ValueError, TypeError):
+            zip_thread_id = None
+
+        logger.info(
+            f"Telegram message received: thread_id={current_thread_id}, "
+            f"has_doc={'document' in message}, has_text={'text' in message}"
+        )
+
+        # 1. Check if document is uploaded
+        if "document" in message:
+            doc = message["document"]
+            file_name = doc.get("file_name", "")
+            file_id = doc.get("file_id")
+            file_size = doc.get("file_size", 0)
+
+            # Check if uploaded in 'Zip file upload' topic
+            if zip_thread_id is not None and current_thread_id == zip_thread_id:
+                if file_name.lower().endswith(".zip"):
+                    from models.uploaded_file import UploadedFile
+                    msg_id = message.get("message_id")
+                    chat_id_val = str(message.get("chat", {}).get("id") or "")
+                    async with async_session_factory() as session:
+                        q = select(UploadedFile).where(UploadedFile.file_name == file_name)
+                        res = await session.execute(q)
+                        existing = res.scalars().first()
+                        if existing:
+                            existing.telegram_file_id = file_id
+                            existing.telegram_message_id = msg_id
+                            existing.telegram_chat_id = chat_id_val
+                            existing.file_size = file_size
+                        else:
+                            new_file = UploadedFile(
+                                file_name=file_name,
+                                telegram_file_id=file_id,
+                                telegram_message_id=msg_id,
+                                telegram_chat_id=chat_id_val,
+                                file_size=file_size,
+                            )
+                            session.add(new_file)
+                        await session.commit()
+                    logger.info(f"Silently saved uploaded ZIP: {file_name} in Zip file upload topic (thread {zip_thread_id}, msg_id {msg_id})")
+                    # Không thông báo gì thêm theo đúng yêu cầu
+                    return
+                else:
+                    logger.info(f"Ignored non-ZIP file in Zip file upload topic: {file_name}")
+                    return
+
+            # Check if uploaded in 'Bot Command' topic
+            if command_thread_id is not None and current_thread_id == command_thread_id:
+                await handle_document_upload(message)
+                return
+
+            logger.info(f"Document ignored in unconfigured thread {current_thread_id}")
             return
 
-        await handle_document_upload(message)
+        # 2. Check text commands
+        text = message.get("text", "").strip()
+        if not text:
+            return
+
+        # Command /topicid or /id works in any topic to help user find thread IDs
+        if text in ("/topicid", "/id"):
+            reply = (
+                f"ℹ️ <b>Thông tin Topic ID:</b>\n\n"
+                f"• <b>Thread ID hiện tại:</b> <code>{current_thread_id}</code>\n"
+                f"• <b>Bot Command Thread:</b> <code>{command_thread_id}</code>\n"
+                f"• <b>Zip Upload Thread:</b> <code>{zip_thread_id}</code>"
+            )
+            send_telegram_notification(reply, message_thread_id=current_thread_id)
+            return
+
+        # Commands specifically in Bot Command topic
+        if command_thread_id is not None and current_thread_id == command_thread_id:
+            if text.startswith("/scan"):
+                from models.uploaded_file import UploadedFile
+                async with async_session_factory() as session:
+                    q = select(UploadedFile).order_by(UploadedFile.created_at.desc()).limit(20)
+                    res = await session.execute(q)
+                    files = res.scalars().all()
+
+                if not files:
+                    reply = (
+                        "ℹ️ <b>Chưa có file ZIP nào được tải lên!</b>\n\n"
+                        "Vui lòng gửi file mã nguồn <code>.zip</code> vào topic <b>Zip file upload</b> trước."
+                    )
+                    send_telegram_notification(reply, message_thread_id=current_thread_id)
+                    return
+
+                # Build inline keyboard buttons
+                base_url = get_telegram_api_base_url()
+                is_official_api = "api.telegram.org" in base_url
+                has_mtproto = bool(getattr(settings, 'TELEGRAM_API_ID', None) and getattr(settings, 'TELEGRAM_API_HASH', None))
+                inline_keyboard = []
+                for f in files:
+                    file_size_bytes = f.file_size or 0
+                    if file_size_bytes >= 1024 * 1024:
+                        size_str = f" ({round(file_size_bytes / (1024 * 1024), 1)} MB)"
+                    elif file_size_bytes > 0:
+                        size_str = f" ({round(file_size_bytes / 1024, 1)} KB)"
+                    else:
+                        size_str = ""
+
+                    is_over_20mb_warning = file_size_bytes > 20 * 1024 * 1024 and is_official_api and not has_mtproto
+                    icon = "⚠️" if is_over_20mb_warning else "📦"
+                    btn_text = f"{icon} {f.file_name}{size_str}"
+                    if is_over_20mb_warning:
+                        btn_text += " [>20MB]"
+
+                    inline_keyboard.append([
+                        {
+                            "text": btn_text,
+                            "callback_data": f"scan_zip:{f.id}"
+                        }
+                    ])
+
+                reply = (
+                    "📁 <b>Danh sách file ZIP đã tải lên:</b>\n\n"
+                    "Bấm chọn file bạn muốn tiến hành quét an ninh mã nguồn:"
+                )
+                send_telegram_notification(reply, message_thread_id=current_thread_id, inline_keyboard=inline_keyboard)
+                return
+
+            elif text in ("/start", "/help"):
+                reply = (
+                    "🤖 <b>SCA Security Platform Bot</b>\n\n"
+                    "• <b>Tải file:</b> Gửi file <code>.zip</code> vào topic <b>Zip file upload</b>\n"
+                    "• <b>Quét mã:</b> Gõ lệnh <code>/scan</code> tại đây để chọn file và kích hoạt quét\n"
+                    "• <b>Tra cứu ID Topic:</b> Gõ <code>/topicid</code> tại bất kỳ topic nào"
+                )
+                send_telegram_notification(reply, message_thread_id=current_thread_id)
+                return
+
     except Exception as e:
         logger.exception(f"Unhandled exception in handle_message: {e}")
 
 
-async def download_telegram_file(file_id: str, dest_path: Path) -> bool:
+_telethon_lock = asyncio.Lock()
+
+
+async def download_via_telethon(chat_id: int | str, message_id: int, dest_path: Path) -> tuple[bool, str]:
+    """
+    Download a file from Telegram using Telethon (MTProto).
+    Bypasses the 20MB Bot API HTTP limit and supports files up to 2GB.
+    Uses TELEGRAM_API_ID and TELEGRAM_API_HASH configured in settings/DB.
+    """
+    from utils.telegram import get_telegram_credentials, get_telegram_api_credentials
+    token, _, _ = get_telegram_credentials()
+    api_id, api_hash = get_telegram_api_credentials()
+
+    if not api_id or not api_hash or not token:
+        logger.error(f"Missing MTProto credentials: token={bool(token)}, api_id={bool(api_id)}, api_hash={bool(api_hash)}")
+        return False, "Thiếu TELEGRAM_API_ID hoặc TELEGRAM_API_HASH để tải file qua MTProto."
+
+    async with _telethon_lock:
+        client = None
+        try:
+            from telethon import TelegramClient
+            session_dir = Path(settings.SCAN_WORKSPACE_DIR) / "telethon_sessions"
+            session_dir.mkdir(parents=True, exist_ok=True)
+            session_path = session_dir / "bot_downloader"
+
+            client = TelegramClient(str(session_path), int(api_id), str(api_hash))
+            await client.connect()
+            if not await client.is_user_authorized():
+                await client.sign_in(bot_token=token)
+
+            target_chat = int(chat_id) if str(chat_id).lstrip('-').isdigit() else chat_id
+            msg = await client.get_messages(target_chat, ids=int(message_id))
+            if not msg or not msg.file:
+                return False, f"Không tìm thấy file trong tin nhắn {message_id}"
+
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Downloading {msg.file.name} ({msg.file.size} bytes) via Telethon MTProto...")
+            downloaded = await client.download_media(msg, file=str(dest_path))
+
+            if downloaded and dest_path.exists() and dest_path.stat().st_size > 0:
+                logger.info(f"Successfully downloaded {dest_path.name} via Telethon MTProto ({dest_path.stat().st_size} bytes)")
+                return True, ""
+            return False, "Tải file qua MTProto không thành công."
+        except Exception as e:
+            logger.error(f"Error downloading via Telethon MTProto: {e}", exc_info=True)
+            return False, str(e)
+        finally:
+            if client:
+                try:
+                    await client.disconnect()
+                except Exception:
+                    pass
+
+
+async def download_telegram_file(
+    file_id: str,
+    dest_path: Path,
+    chat_id: int | str | None = None,
+    message_id: int | None = None,
+    file_size: int | None = None,
+) -> tuple[bool, str]:
     """
     Download a file from Telegram server using the bot token.
+    If file > 20MB and chat_id/message_id are available, automatically downloads via Telethon (MTProto).
     """
-    from utils.telegram import get_telegram_credentials, get_telegram_api_base_url
-    token, _, _ = get_telegram_credentials()
+    from utils.telegram import get_telegram_credentials, get_telegram_api_credentials, get_telegram_api_base_url
+    token, default_chat_id, _ = get_telegram_credentials()
+    api_id, api_hash = get_telegram_api_credentials()
+    target_chat_id = chat_id or default_chat_id
+
+    logger.info(
+        f"download_telegram_file: file_name={dest_path.name}, file_size={file_size}, "
+        f"chat_id={target_chat_id}, message_id={message_id}, api_id={api_id}, api_hash={'set' if api_hash else 'missing'}"
+    )
+
+    # 1. If file is known to be > 20MB and we have API ID/Hash + chat/message ID, use Telethon MTProto directly
+    if file_size and file_size > 20 * 1024 * 1024:
+        if target_chat_id and message_id and api_id and api_hash:
+            logger.info(f"File size {file_size} > 20MB, downloading directly via Telethon MTProto...")
+            success, err = await download_via_telethon(target_chat_id, message_id, dest_path)
+            if success:
+                return True, ""
+            logger.warning(f"Telethon MTProto direct download failed ({err}), falling back to HTTP getFile")
+        else:
+            logger.warning(
+                f"File size {file_size} > 20MB but missing MTProto parameters: "
+                f"chat_id={target_chat_id}, message_id={message_id}, api_id={api_id}, api_hash={'set' if api_hash else 'missing'}"
+            )
+
     if not token:
-        return False
+        return False, "Thiếu cấu hình Telegram Bot Token."
         
     async with httpx.AsyncClient() as client:
         try:
@@ -162,11 +368,36 @@ async def download_telegram_file(file_id: str, dest_path: Path) -> bool:
             url = f"{base_url}/bot{token}/getFile"
             res = await client.get(url, params={"file_id": file_id})
             if res.status_code != 200:
-                return False
+                err_desc = ""
+                try:
+                    err_json = res.json()
+                    err_desc = err_json.get("description", "")
+                except Exception:
+                    err_desc = res.text
+                logger.error(f"Telegram getFile error for {file_id}: HTTP {res.status_code} - {err_desc}")
+                if "file is too big" in err_desc.lower():
+                    # Fallback to Telethon MTProto if available!
+                    if target_chat_id and message_id and api_id and api_hash:
+                        logger.info("HTTP getFile returned file_too_big, falling back to Telethon MTProto...")
+                        mtproto_ok, mtproto_err = await download_via_telethon(target_chat_id, message_id, dest_path)
+                        if mtproto_ok:
+                            return True, ""
+                        return False, f"file_too_big (MTProto fallback failed: {mtproto_err})"
+                    return False, "file_too_big"
+                return False, f"Telegram API getFile: {err_desc}"
                 
             data = res.json()
             if not data.get("ok"):
-                return False
+                desc = data.get("description", "Phản hồi không hợp lệ từ Telegram.")
+                logger.error(f"Telegram getFile response not ok: {desc}")
+                if "file is too big" in desc.lower():
+                    if target_chat_id and message_id and api_id and api_hash:
+                        mtproto_ok, mtproto_err = await download_via_telethon(target_chat_id, message_id, dest_path)
+                        if mtproto_ok:
+                            return True, ""
+                        return False, f"file_too_big (MTProto fallback failed: {mtproto_err})"
+                    return False, "file_too_big"
+                return False, desc
                 
             file_path = data["result"]["file_path"]
             download_url = f"{base_url}/file/bot{token}/{file_path}"
@@ -175,14 +406,18 @@ async def download_telegram_file(file_id: str, dest_path: Path) -> bool:
             dest_path.parent.mkdir(parents=True, exist_ok=True)
             async with client.stream("GET", download_url) as response:
                 if response.status_code != 200:
-                    return False
+                    return False, f"Lỗi tải dữ liệu file (HTTP {response.status_code})"
                 with open(dest_path, "wb") as f:
                     async for chunk in response.aiter_bytes():
                         f.write(chunk)
-            return True
+            return True, ""
         except Exception as e:
             logger.error(f"Error downloading Telegram file {file_id}: {e}")
-            return False
+            if target_chat_id and message_id and api_id and api_hash:
+                mtproto_ok, mtproto_err = await download_via_telethon(target_chat_id, message_id, dest_path)
+                if mtproto_ok:
+                    return True, ""
+            return False, str(e)
 
 
 async def handle_document_upload(message: dict):
@@ -234,9 +469,25 @@ async def handle_document_upload(message: dict):
     temp_file_path = temp_dir / f"{upload_uuid}_{file_name}"
     
     # Download file
-    success = await download_telegram_file(file_id, temp_file_path)
+    success, err_msg = await download_telegram_file(
+        file_id=file_id,
+        dest_path=temp_file_path,
+        chat_id=message.get("chat", {}).get("id"),
+        message_id=message.get("message_id"),
+        file_size=file_size,
+    )
     if not success:
-        reply = "❌ <b>Lỗi tải lên:</b> Không thể tải xuống tệp tin từ Telegram. Vui lòng thử lại."
+        if err_msg == "file_too_big":
+            size_mb = round(file_size / (1024 * 1024), 2)
+            reply = (
+                f"❌ <b>Lỗi dung lượng tệp tin:</b>\n\n"
+                f"Tệp tin <code>{escape_html(file_name)}</code> ({size_mb} MB) vượt quá giới hạn tải xuống <b>20 MB</b> của máy chủ Telegram Bot API mặc định (<code>api.telegram.org</code>).\n\n"
+                f"💡 <b>Cách khắc phục:</b>\n"
+                f"• Giảm dung lượng file ZIP xuống dưới 20 MB (loại bỏ thư mục <code>node_modules</code>, <code>venv</code>, <code>.git</code>, media/build artifacts...).\n"
+                f"• Hoặc cấu hình <b>Local Telegram Bot API Server</b> để hỗ trợ tải file lên đến <b>2 GB</b>."
+            )
+        else:
+            reply = f"❌ <b>Lỗi tải lên:</b> Không thể tải xuống tệp tin từ Telegram ({escape_html(err_msg)})."
         send_telegram_notification(reply, message_thread_id=thread_id)
         return
 
@@ -352,6 +603,66 @@ async def handle_callback_query(callback_query: dict):
     elif data.startswith("tg_scan:"):
         upload_uuid = data.replace("tg_scan:", "")
         await process_telegram_scan_trigger(upload_uuid, message_thread_id)
+    elif data.startswith("scan_zip:"):
+        upload_id = data.replace("scan_zip:", "")
+        await process_scan_uploaded_zip(upload_id, message_thread_id)
+
+
+async def process_scan_uploaded_zip(upload_id: str, current_thread_id: int | None):
+    """
+    Handle user selecting an uploaded ZIP file to scan from Bot Command topic.
+    Downloads the file from Telegram and launches the scan pipeline.
+    """
+    from models.uploaded_file import UploadedFile
+    async with async_session_factory() as session:
+        upload_rec = await session.get(UploadedFile, upload_id)
+        if not upload_rec:
+            msg = "❌ Không tìm thấy thông tin tệp tin trong cơ sở dữ liệu hoặc tệp đã bị xóa."
+            send_telegram_notification(msg, message_thread_id=current_thread_id)
+            return
+
+        file_name = upload_rec.file_name
+        telegram_file_id = upload_rec.telegram_file_id
+        telegram_chat_id = upload_rec.telegram_chat_id
+        telegram_message_id = upload_rec.telegram_message_id
+        file_size = upload_rec.file_size
+
+    # Create temporary download path
+    upload_uuid = str(uuid.uuid4())
+    temp_dir = Path(settings.SCAN_WORKSPACE_DIR) / "temp_telegram_uploads"
+    temp_file_path = temp_dir / f"{upload_uuid}_{file_name}"
+
+    size_mb = round((file_size or 0) / (1024 * 1024), 2)
+    download_notice = (
+        f"⏳ Đang tải file <code>{escape_html(file_name)}</code> ({size_mb} MB) từ Telegram về máy để phân tích..."
+        if file_size and file_size > 20 * 1024 * 1024
+        else f"⏳ Đang tải file <code>{escape_html(file_name)}</code> từ Telegram về máy để phân tích..."
+    )
+    send_telegram_notification(download_notice, message_thread_id=current_thread_id)
+
+    success, err_msg = await download_telegram_file(
+        file_id=telegram_file_id,
+        dest_path=temp_file_path,
+        chat_id=telegram_chat_id,
+        message_id=telegram_message_id,
+        file_size=file_size,
+    )
+    if not success:
+        if err_msg == "file_too_big":
+            msg = (
+                f"❌ <b>Lỗi dung lượng tệp tin:</b>\n\n"
+                f"Tệp <code>{escape_html(file_name)}</code> ({size_mb} MB) vượt quá giới hạn tải xuống <b>20 MB</b> của máy chủ Telegram Bot API mặc định (<code>api.telegram.org</code>).\n\n"
+                f"💡 <b>Cách khắc phục:</b>\n"
+                f"• Kiểm tra cấu hình TELEGRAM_API_ID và TELEGRAM_API_HASH để tải file dung lượng lớn qua MTProto.\n"
+                f"• Hoặc cấu hình <b>Local Telegram Bot API Server</b> để hỗ trợ tải file lên đến <b>2 GB</b>."
+            )
+        else:
+            msg = f"❌ Không thể tải xuống tệp <code>{escape_html(file_name)}</code> từ Telegram ({escape_html(err_msg)})."
+        send_telegram_notification(msg, message_thread_id=current_thread_id)
+        return
+
+    # Trigger scan pipeline
+    await process_telegram_scan_trigger(upload_uuid, current_thread_id)
 
 
 async def process_delete_project(project_id: str):

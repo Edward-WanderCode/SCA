@@ -362,7 +362,14 @@ def handle_rescan_optimization(session: Session, scan: Scan, repo_path: str, sca
             for f in prev_findings
         ]
 
-        scan.findings_diff = {"added": 0, "removed": 0, "unmodified": len(prev_findings)}
+        scan.findings_diff = {
+            "added": 0,
+            "removed": 0,
+            "unmodified": len(prev_findings),
+            "resolved": 0,
+            "suspicious": 0,
+            "suspicious_findings": [],
+        }
         session.commit()
         return True, finding_dicts
 
@@ -436,7 +443,12 @@ def _execute_combined_scan(
 # ──────────────────────────────────────────────────────────────
 
 def compute_and_save_findings_diff(session: Session, scan: Scan, current_findings: list[Finding]):
-    """Compute findings difference compared to the previous completed scan."""
+    """
+    Compute findings difference compared to the previous completed scan.
+    Categorizes missing findings into:
+      - 'resolved': The file still exists in the codebase, but the vulnerability is gone (code fixed).
+      - 'suspicious': The file containing the finding was deleted/missing from the codebase (potential evasion).
+    """
     prev_scan = (
         session.query(Scan)
         .filter(
@@ -450,7 +462,14 @@ def compute_and_save_findings_diff(session: Session, scan: Scan, current_finding
     )
 
     if not prev_scan:
-        scan.findings_diff = {"added": len(current_findings), "removed": 0, "unmodified": 0}
+        scan.findings_diff = {
+            "added": len(current_findings),
+            "removed": 0,
+            "unmodified": 0,
+            "resolved": 0,
+            "suspicious": 0,
+            "suspicious_findings": [],
+        }
         for f in current_findings:
             meta = dict(f.metadata_json or {})
             meta["is_new"] = True
@@ -462,10 +481,11 @@ def compute_and_save_findings_diff(session: Session, scan: Scan, current_finding
 
     def get_finding_key(f):
         if isinstance(f, Finding):
-            return (f.file_path or "", f.line_start or 0, f.rule_id or "", f.title or "")
-        return (f.get("file_path") or "", f.get("line_start") or 0, f.get("rule_id") or "", f.get("title") or "")
+            return (normalize_relative_path(f.file_path) or "", f.line_start or 0, f.rule_id or "", f.title or "")
+        return (normalize_relative_path(f.get("file_path")) or "", f.get("line_start") or 0, f.get("rule_id") or "", f.get("title") or "")
 
-    prev_keys = {get_finding_key(f) for f in prev_findings}
+    prev_map = {get_finding_key(f): f for f in prev_findings}
+    prev_keys = set(prev_map.keys())
 
     added_count = 0
     for f in current_findings:
@@ -478,11 +498,66 @@ def compute_and_save_findings_diff(session: Session, scan: Scan, current_finding
             meta["is_new"] = False
         f.metadata_json = meta
 
-    curr_keys = {get_finding_key(f) for f in current_findings}
-    removed_count = len(prev_keys - curr_keys)
+    curr_keys = {get_finding_key(f): f for f in current_findings}
+    removed_keys = prev_keys - curr_keys
+
+    # Lấy danh sách toàn bộ file trong source code mới từ mã băm file_hashes
+    current_hashes = scan.file_hashes or {}
+    normalized_current_files = {
+        normalize_relative_path(p).lower() for p in current_hashes.keys() if p
+    }
+
+    resolved_count = 0
+    suspicious_count = 0
+    suspicious_findings = []
+
+    for r_key in removed_keys:
+        old_finding = prev_map[r_key]
+        raw_path = old_finding.file_path if isinstance(old_finding, Finding) else old_finding.get("file_path")
+        norm_path = normalize_relative_path(raw_path).lower()
+
+        # Kiểm tra xem file chứa lỗi cũ còn tồn tại trong source code mới không
+        is_file_still_present = False
+        if not norm_path:
+            # Lỗi không liên kết với file cụ thể (ví dụ package dependencies cấp dự án)
+            is_file_still_present = True
+        elif norm_path in normalized_current_files:
+            is_file_still_present = True
+        else:
+            # Kiểm tra hậu tố phòng trường hợp prefix thư mục lệch nhẹ giữa scanner và hash
+            for cf in normalized_current_files:
+                if cf.endswith("/" + norm_path) or norm_path.endswith("/" + cf):
+                    is_file_still_present = True
+                    break
+
+        if is_file_still_present:
+            resolved_count += 1
+        else:
+            suspicious_count += 1
+            sev = (
+                old_finding.severity.value
+                if hasattr(old_finding.severity, "value")
+                else str(old_finding.severity or "medium")
+            ) if isinstance(old_finding, Finding) else old_finding.get("severity", "medium")
+
+            suspicious_findings.append({
+                "file_path": raw_path or norm_path,
+                "title": (old_finding.title if isinstance(old_finding, Finding) else old_finding.get("title")) or "Lỗi bảo mật",
+                "severity": str(sev).lower(),
+                "rule_id": (old_finding.rule_id if isinstance(old_finding, Finding) else old_finding.get("rule_id")) or "",
+                "line_start": old_finding.line_start if isinstance(old_finding, Finding) else old_finding.get("line_start"),
+            })
+
     unmodified_count = len(current_findings) - added_count
 
-    scan.findings_diff = {"added": added_count, "removed": removed_count, "unmodified": unmodified_count}
+    scan.findings_diff = {
+        "added": added_count,
+        "removed": resolved_count,  # Chỉ tính các lỗi thực sự đã được sửa code
+        "unmodified": unmodified_count,
+        "resolved": resolved_count,
+        "suspicious": suspicious_count,  # Các lỗi biến mất do file bị xóa né tránh
+        "suspicious_findings": suspicious_findings,
+    }
     session.commit()
 
 

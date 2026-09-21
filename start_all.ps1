@@ -7,7 +7,8 @@ Write-Host "============================================================" -Foreg
 Write-Host "  >> SCA Platform - Khoi dong he thong (Giam thieu cua so) " -ForegroundColor Cyan
 Write-Host "============================================================" -ForegroundColor Cyan
 
-$RootDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$RootDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+if (-not $RootDir) { $RootDir = (Get-Location).Path }
 $ToolsDir = Join-Path $RootDir "tools"
 $LogsDir = Join-Path $ToolsDir "logs"
 if (-not (Test-Path $LogsDir)) { New-Item -ItemType Directory -Path $LogsDir -Force | Out-Null }
@@ -95,11 +96,39 @@ Write-Host "============================================================" -Foreg
 
 Start-Process "http://localhost:3000"
 
-Write-Host "`nBam phim [Q] de dung he thong, hoac dong cua so nay (dich vu van chay ngam):" -ForegroundColor Yellow
+Write-Host "`n============================================================" -ForegroundColor Yellow
+Write-Host "  >> Nhan phim [Q] (hoac go 'q' roi Enter) de DUNG he thong" -ForegroundColor Yellow
+Write-Host "  >> Hoac dong cua so nay neu muon tiep tuc chay ngam" -ForegroundColor DarkGray
+Write-Host "============================================================" -ForegroundColor Yellow
+Write-Host -NoNewline "`n[SCA Controller] Bam Q de tat he thong: " -ForegroundColor Cyan
 
-# Dung choice.exe - hoat dong chinh xac khi chay tu bat va powershell
-$choice = & choice.exe /C Q /N
-if ($LASTEXITCODE -eq 1) {
-    Write-Host "`nDang dung he thong..." -ForegroundColor Red
-    & (Join-Path $RootDir "stop_all.ps1")
+$quit = $false
+while (-not $quit) {
+    try {
+        if ([System.Console]::IsInputRedirected) {
+            $line = [System.Console]::ReadLine()
+            if ($null -ne $line -and $line.Trim() -match '^(q|quit|exit)$') {
+                $quit = $true
+                break
+            }
+        } elseif ($Host.UI.RawUI.KeyAvailable) {
+            $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+            if ($key.Character -eq 'q' -or $key.Character -eq 'Q' -or $key.VirtualKeyCode -eq 81) {
+                $quit = $true
+                break
+            }
+        }
+    } catch {
+        $line = Read-Host
+        if ($null -ne $line -and $line.Trim() -match '^(q|quit|exit)$') {
+            $quit = $true
+            break
+        }
+    }
+    Start-Sleep -Milliseconds 150
 }
+
+Write-Host "`n`nDang dung toan bo he thong..." -ForegroundColor Red
+& (Join-Path $RootDir "stop_all.ps1")
+Write-Host "`nCua so se dong sau 2 giay..." -ForegroundColor DarkGray
+Start-Sleep -Seconds 2

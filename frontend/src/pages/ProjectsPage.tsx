@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Plus, FolderGit2, ExternalLink, Trash2, Clock, Search as SearchIcon, GitBranch, RefreshCw, Webhook, Settings } from 'lucide-react';
+import { Plus, FolderGit2, ExternalLink, Trash2, Clock, Search as SearchIcon, GitBranch, RefreshCw, Webhook, Settings, AlertTriangle } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { projectsApi } from '@/lib/api';
 import { formatDate, timeAgo } from '@/lib/utils';
@@ -309,22 +309,48 @@ export default function ProjectsPage() {
                   </div>
                   
                   {project.findings_diff && (
-                    <div style={{ display: 'flex', gap: 8, fontSize: '0.6875rem' }}>
+                    <div style={{ display: 'flex', gap: 6, fontSize: '0.6875rem', flexWrap: 'wrap', alignItems: 'center' }}>
                       {project.findings_diff.added > 0 && (
                         <span style={{ color: '#f87171', fontWeight: 500 }}>
                           +{project.findings_diff.added} new
                         </span>
                       )}
-                      {project.findings_diff.removed > 0 && (
+                      {(project.findings_diff.resolved ?? project.findings_diff.removed) > 0 && (
                         <span style={{ color: '#4ade80', fontWeight: 500 }}>
-                          -{project.findings_diff.removed} fixed
+                          -{(project.findings_diff.resolved ?? project.findings_diff.removed)} fixed
                         </span>
                       )}
-                      {project.findings_diff.added === 0 && project.findings_diff.removed === 0 && (
-                        <span style={{ color: 'var(--text-muted)', fontSize: '0.6875rem', fontStyle: 'italic' }}>
-                          no change
+                      {project.findings_diff.suspicious && project.findings_diff.suspicious > 0 ? (
+                        <span
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(`/findings?project_id=${project.id}`);
+                          }}
+                          style={{
+                            color: '#f87171',
+                            fontWeight: 600,
+                            background: 'rgba(239, 68, 68, 0.15)',
+                            padding: '1px 6px',
+                            borderRadius: 4,
+                            border: '1px solid rgba(239, 68, 68, 0.35)',
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 3,
+                          }}
+                          title="Nhấp để xem chi tiết các lỗi biến mất do file bị xóa"
+                        >
+                          <AlertTriangle size={11} />
+                          {project.findings_diff.suspicious} file deleted
                         </span>
-                      )}
+                      ) : null}
+                      {project.findings_diff.added === 0 &&
+                        (project.findings_diff.resolved ?? project.findings_diff.removed) === 0 &&
+                        (!project.findings_diff.suspicious || project.findings_diff.suspicious === 0) && (
+                          <span style={{ color: 'var(--text-muted)', fontSize: '0.6875rem', fontStyle: 'italic' }}>
+                            no change
+                          </span>
+                        )}
                     </div>
                   )}
                 </div>

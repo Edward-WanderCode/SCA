@@ -48,7 +48,14 @@ async def _get_project_findings(db: AsyncSession, project_id: str) -> tuple[dict
     
     # Sum summaries
     findings = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
-    findings_diff = {"added": 0, "removed": 0, "unmodified": 0}
+    findings_diff = {
+        "added": 0,
+        "removed": 0,
+        "unmodified": 0,
+        "resolved": 0,
+        "suspicious": 0,
+        "suspicious_findings": [],
+    }
     has_diff = False
     
     for s in latest_scans:
@@ -60,6 +67,10 @@ async def _get_project_findings(db: AsyncSession, project_id: str) -> tuple[dict
             findings_diff["added"] += s.findings_diff.get("added", 0)
             findings_diff["removed"] += s.findings_diff.get("removed", 0)
             findings_diff["unmodified"] += s.findings_diff.get("unmodified", 0)
+            findings_diff["resolved"] += s.findings_diff.get("resolved", s.findings_diff.get("removed", 0))
+            findings_diff["suspicious"] += s.findings_diff.get("suspicious", 0)
+            if s.findings_diff.get("suspicious_findings"):
+                findings_diff["suspicious_findings"].extend(s.findings_diff.get("suspicious_findings", []))
             
     return findings, (findings_diff if has_diff else None)
 

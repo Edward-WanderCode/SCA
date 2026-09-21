@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
-import { Plus, Filter, Clock, Trash2, Download, RefreshCw } from 'lucide-react';
+import { Plus, Filter, Clock, Trash2, Download, RefreshCw, AlertTriangle, X } from 'lucide-react';
 import { scansApi, default as api } from '@/lib/api';
 import { scanTypeConfig, statusConfig, timeAgo, formatDuration } from '@/lib/utils';
 import type { ScanType, ScanStatus, Scan } from '@/types';
@@ -45,6 +45,7 @@ export default function ScansPage() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [showNewScan, setShowNewScan] = useState(false);
   const [updateModalScan, setUpdateModalScan] = useState<Scan | null>(null);
+  const [selectedSuspiciousScan, setSelectedSuspiciousScan] = useState<Scan | null>(null);
 
   const handleDownloadSarif = async (scanId: string) => {
     try {
@@ -233,22 +234,49 @@ export default function ScansPage() {
                             )}
                           </div>
                           {scan.findings_diff && (
-                            <div style={{ display: 'flex', gap: 8, fontSize: '0.6875rem', marginTop: 2 }}>
+                            <div style={{ display: 'flex', gap: 6, fontSize: '0.6875rem', marginTop: 3, flexWrap: 'wrap', alignItems: 'center' }}>
                               {scan.findings_diff.added > 0 && (
                                 <span style={{ color: '#f87171', fontWeight: 500 }}>
                                   +{scan.findings_diff.added} new
                                 </span>
                               )}
-                              {scan.findings_diff.removed > 0 && (
+                              {(scan.findings_diff.resolved ?? scan.findings_diff.removed) > 0 && (
                                 <span style={{ color: '#4ade80', fontWeight: 500 }}>
-                                  -{scan.findings_diff.removed} fixed
+                                  -{(scan.findings_diff.resolved ?? scan.findings_diff.removed)} fixed
                                 </span>
                               )}
-                              {scan.findings_diff.added === 0 && scan.findings_diff.removed === 0 && (
-                                <span style={{ color: 'var(--text-muted)', fontSize: '0.6875rem', fontStyle: 'italic' }}>
-                                  no change
-                                </span>
-                              )}
+                              {scan.findings_diff.suspicious && scan.findings_diff.suspicious > 0 ? (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedSuspiciousScan(scan);
+                                  }}
+                                  style={{
+                                    color: '#f87171',
+                                    fontWeight: 600,
+                                    background: 'rgba(239, 68, 68, 0.15)',
+                                    padding: '1px 6px',
+                                    borderRadius: 4,
+                                    border: '1px solid rgba(239, 68, 68, 0.35)',
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 3,
+                                  }}
+                                  title="Nhấp để xem chi tiết các lỗi biến mất do file bị xóa"
+                                >
+                                  <AlertTriangle size={11} />
+                                  {scan.findings_diff.suspicious} file deleted
+                                </button>
+                              ) : null}
+                              {scan.findings_diff.added === 0 &&
+                                (scan.findings_diff.resolved ?? scan.findings_diff.removed) === 0 &&
+                                (!scan.findings_diff.suspicious || scan.findings_diff.suspicious === 0) && (
+                                  <span style={{ color: 'var(--text-muted)', fontSize: '0.6875rem', fontStyle: 'italic' }}>
+                                    no change
+                                  </span>
+                                )}
                             </div>
                           )}
                         </div>
@@ -361,6 +389,130 @@ export default function ScansPage() {
             refetch();
           }}
         />
+      )}
+
+      {/* Modal chi tiết lỗi biến mất do file bị xóa */}
+      {selectedSuspiciousScan && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.75)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            padding: 20,
+          }}
+          onClick={() => setSelectedSuspiciousScan(null)}
+        >
+          <div
+            className="glass-card"
+            style={{
+              width: '100%',
+              maxWidth: 680,
+              maxHeight: '85vh',
+              overflowY: 'auto',
+              padding: 24,
+              backgroundColor: '#161922',
+              border: '1px solid rgba(239, 68, 68, 0.45)',
+              boxShadow: '0 10px 30px rgba(239, 68, 68, 0.25)',
+              borderRadius: 12,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div
+                  style={{
+                    width: 38,
+                    height: 38,
+                    borderRadius: 8,
+                    backgroundColor: 'rgba(239, 68, 68, 0.2)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#ef4444',
+                    border: '1px solid rgba(239, 68, 68, 0.4)',
+                    flexShrink: 0,
+                  }}
+                >
+                  <AlertTriangle size={20} />
+                </div>
+                <div>
+                  <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#f87171', margin: 0 }}>
+                    ⚠️ CẢNH BÁO NÉ LỖI: Có {selectedSuspiciousScan.findings_diff?.suspicious || 0} lỗi biến mất nhưng do FILE BỊ XÓA:
+                  </h3>
+                  <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '4px 0 0 0' }}>
+                    Dự án: {selectedSuspiciousScan.project_name || selectedSuspiciousScan.project_id}
+                  </p>
+                </div>
+              </div>
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => setSelectedSuspiciousScan(null)}
+                style={{ padding: 6 }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div
+              style={{
+                backgroundColor: 'rgba(239, 68, 68, 0.08)',
+                border: '1px solid rgba(239, 68, 68, 0.25)',
+                borderRadius: 8,
+                padding: 16,
+                marginBottom: 18,
+              }}
+            >
+              <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {(selectedSuspiciousScan.findings_diff?.suspicious_findings || []).map((item, idx) => (
+                  <li key={idx} style={{ fontSize: '0.84rem', lineHeight: 1.5, color: '#fee2e2' }}>
+                    <span
+                      style={{
+                        fontFamily: "'JetBrains Mono', monospace",
+                        fontWeight: 600,
+                        color: '#ffffff',
+                        backgroundColor: 'rgba(0, 0, 0, 0.4)',
+                        padding: '2px 8px',
+                        borderRadius: 4,
+                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                      }}
+                    >
+                      {item.file_path || 'unknown file'}
+                    </span>{' '}
+                    <span style={{ color: '#fca5a5' }}>
+                      ({item.title ? `Lỗi ${item.title}` : 'Lỗi bảo mật'})
+                    </span>{' '}
+                    <span style={{ color: '#f87171', fontWeight: 600 }}>
+                      -&gt; File không còn tồn tại trong source code mới!
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => setSelectedSuspiciousScan(null)}
+              >
+                Đóng
+              </button>
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={() => {
+                  navigate(`/findings?scan_id=${selectedSuspiciousScan.id}`);
+                  setSelectedSuspiciousScan(null);
+                }}
+              >
+                Xem danh sách Findings
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

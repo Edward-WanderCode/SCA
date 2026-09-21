@@ -193,7 +193,7 @@ SCA/
 - `progress_message` (String)
 - `summary` (JSON: thống kê số lượng critical, high, medium, low, info)
 - `file_hashes` (JSON: hash MD5/SHA256 của các file trong dự án dùng để tối ưu rescan)
-- `findings_diff` (JSON: `{"added": X, "removed": Y, "unmodified": Z}`)
+- `findings_diff` (JSON: `{"added": X, "removed": Y, "unmodified": Z, "resolved": A, "suspicious": B, "suspicious_findings": [...]}`) — Phân loại lỗi sửa thật (`resolved`) vs lỗi biến mất do xóa file né tránh (`suspicious`)
 
 ### Bảng `findings` ([backend/models/finding.py](file:///d:/Code/SCA/backend/models/finding.py))
 - `id` (UUID, Primary Key)

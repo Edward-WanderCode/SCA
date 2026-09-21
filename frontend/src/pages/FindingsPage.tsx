@@ -5,7 +5,7 @@ import { useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Filter, Search, FileCode, ExternalLink, ChevronRight, AlertTriangle, Shield, Key, Download, ChevronDown, ChevronLeft } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { findingsApi, projectsApi, default as api } from '@/lib/api';
+import { findingsApi, projectsApi, scansApi, default as api } from '@/lib/api';
 import { severityConfig } from '@/lib/utils';
 import type { Severity, Finding } from '@/types';
 
@@ -127,6 +127,24 @@ export default function FindingsPage() {
     setPage(1);
   };
 
+  // Fetch current scan detail if filterScanId is active
+  const { data: scanDetail } = useQuery({
+    queryKey: ['scan-detail-diff', filterScanId],
+    queryFn: () => scansApi.get(filterScanId),
+    enabled: Boolean(filterScanId),
+  });
+
+  // Fetch current project detail if filterProjectId is active (and no filterScanId)
+  const { data: projectDetail } = useQuery({
+    queryKey: ['project-detail-diff', filterProjectId],
+    queryFn: () => projectsApi.get(filterProjectId),
+    enabled: Boolean(filterProjectId && !filterScanId),
+  });
+
+  const activeDiff = scanDetail?.findings_diff || projectDetail?.findings_diff;
+  const suspiciousFindings = activeDiff?.suspicious_findings || [];
+  const suspiciousCount = activeDiff?.suspicious || suspiciousFindings.length;
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       {/* Header */}
@@ -165,6 +183,82 @@ export default function FindingsPage() {
           </p>
         </div>
       </div>
+
+      {/* Red Alert Banner: Cảnh báo né lỗi do xóa file */}
+      {suspiciousCount > 0 && suspiciousFindings.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          style={{
+            backgroundColor: 'rgba(239, 68, 68, 0.12)',
+            border: '1px solid rgba(239, 68, 68, 0.45)',
+            borderRadius: '10px',
+            padding: '16px 20px',
+            color: '#fee2e2',
+            boxShadow: '0 4px 20px rgba(239, 68, 68, 0.15)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
+            <div
+              style={{
+                width: 38,
+                height: 38,
+                borderRadius: '8px',
+                backgroundColor: 'rgba(239, 68, 68, 0.22)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+                color: '#ef4444',
+                border: '1px solid rgba(239, 68, 68, 0.4)',
+              }}
+            >
+              <AlertTriangle size={20} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div
+                style={{
+                  fontWeight: 700,
+                  fontSize: '0.9375rem',
+                  color: '#f87171',
+                  marginBottom: 10,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  letterSpacing: '0.01em',
+                }}
+              >
+                ⚠️ CẢNH BÁO NÉ LỖI: Có {suspiciousCount} lỗi biến mất nhưng do FILE BỊ XÓA:
+              </div>
+              <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {suspiciousFindings.map((item, idx) => (
+                  <li key={idx} style={{ fontSize: '0.84rem', lineHeight: 1.5 }}>
+                    <span
+                      style={{
+                        fontFamily: "'JetBrains Mono', monospace",
+                        fontWeight: 600,
+                        color: '#ffffff',
+                        backgroundColor: 'rgba(0, 0, 0, 0.35)',
+                        padding: '2px 8px',
+                        borderRadius: 4,
+                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                      }}
+                    >
+                      {item.file_path || 'unknown file'}
+                    </span>{' '}
+                    <span style={{ color: '#fca5a5' }}>
+                      ({item.title ? `Lỗi ${item.title}` : 'Lỗi bảo mật'})
+                    </span>{' '}
+                    <span style={{ color: '#f87171', fontWeight: 600 }}>
+                      -&gt; File không còn tồn tại trong source code mới!
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </motion.div>
+      )}
 
       {/* Filters */}
       <div className="glass-card" style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>

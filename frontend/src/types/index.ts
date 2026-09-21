@@ -35,6 +35,23 @@ export interface RegisterData {
 }
 
 
+export interface SuspiciousFinding {
+  file_path: string;
+  title: string;
+  severity: Severity | string;
+  rule_id?: string | null;
+  line_start?: number | null;
+}
+
+export interface FindingsDiff {
+  added: number;
+  removed: number;
+  unmodified: number;
+  resolved?: number;
+  suspicious?: number;
+  suspicious_findings?: SuspiciousFinding[];
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -47,7 +64,7 @@ export interface Project {
   total_scans: number;
   last_scan_at: string | null;
   findings: Record<Severity, number> | null;
-  findings_diff: { added: number; removed: number; unmodified: number } | null;
+  findings_diff: FindingsDiff | null;
 }
 
 export interface ScanSummary {
@@ -73,7 +90,7 @@ export interface Scan {
   duration_seconds: number | null;
   error_message: string | null;
   summary: ScanSummary | null;
-  findings_diff: { added: number; removed: number; unmodified: number } | null;
+  findings_diff: FindingsDiff | null;
   created_at: string;
 }
 

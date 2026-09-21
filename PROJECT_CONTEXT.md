@@ -267,3 +267,33 @@ SCA/
 ### Khuyến nghị tối ưu cho 1 người dùng:
 1. **Dọn dẹp tự động (Auto-cleanup workspace):** Thêm cronjob dọn dẹp các thư mục temp trong `/app/workspace` định kỳ để không làm dầy ổ đĩa.
 2. **Local Binaries Execution:** Nếu chạy trực tiếp trên Linux host hoặc Docker, việc cài đặt `trivy` và `trufflehog` trực tiếp làm CLI thay vì chạy Docker-in-Docker sẽ giúp tốc độ quét nhanh hơn gấp 2-3 lần.
+
+---
+
+## 8. Hướng dẫn Vận hành Hệ thống (`sca.bat` — All-in-One Controller)
+
+Toàn bộ các tác vụ điều khiển hệ thống (Start, Stop, Restart, Status, View Logs, Web Launcher) đã được gom gọn thành **một file duy nhất** tại thư mục gốc: [sca.bat](file:///d:/Code/SCA/sca.bat).
+
+### Cách 1: Giao diện Menu Tương tác (Double-click `sca.bat`)
+Chỉ cần nhấp đúp chuột vào file `sca.bat`, bảng điều khiển Terminal Cyber Security sẽ hiển thị:
+- Kiểm tra tự động thời gian thực trạng thái 5 dịch vụ (Postgres, Redis, FastAPI, Celery, Vite Frontend).
+- Các phím số điều khiển nhanh:
+  - `[1]` Khởi động toàn bộ dịch vụ (Start All)
+  - `[2]` Dừng toàn bộ dịch vụ an toàn (Stop All)
+  - `[3]` Khởi động lại hệ thống (Restart All)
+  - `[4]` Xem logs trực tiếp (Backend, Celery, Frontend, Postgres)
+  - `[5]` Mở trình duyệt Web Dashboard (http://localhost:3000)
+  - `[0]` Thoát
+
+### Cách 2: Dòng lệnh CLI Nhanh
+| Lệnh | Mô tả |
+|---|---|
+| `sca.bat start` | Khởi động toàn bộ dịch vụ ngầm |
+| `sca.bat stop` | Dừng an toàn toàn bộ dịch vụ |
+| `sca.bat restart` | Khởi động lại toàn bộ dịch vụ |
+| `sca.bat status` | Kiểm tra trạng thái port và PID của 5 dịch vụ |
+| `sca.bat logs backend` | Xem log trực tiếp của FastAPI Backend |
+| `sca.bat logs celery` | Xem log trực tiếp của Celery Worker |
+| `sca.bat logs frontend` | Xem log trực tiếp của Frontend Vite |
+| `sca.bat logs postgres` | Xem log trực tiếp của PostgreSQL |
+

@@ -498,8 +498,8 @@ def compute_and_save_findings_diff(session: Session, scan: Scan, current_finding
             meta["is_new"] = False
         f.metadata_json = meta
 
-    curr_keys = {get_finding_key(f): f for f in current_findings}
-    removed_keys = prev_keys - curr_keys
+    curr_keys = {get_finding_key(f) for f in current_findings}
+    removed_keys = prev_keys.difference(curr_keys)
 
     # Lấy danh sách toàn bộ file trong source code mới từ mã băm file_hashes
     current_hashes = scan.file_hashes or {}

@@ -500,3 +500,158 @@ async def generate_webhook_config(
     )
 
 
+@router.get("/{project_id}/file-tree")
+async def get_project_file_tree(
+    project_id: str,
+    scan_id: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """
+    Get file tree structure for a project scan, with findings count and deletion status.
+    """
+    from utils.path_utils import normalize_relative_path
+    from models.finding import Finding
+    from models.scan import ScanStatus
+
+    # 1. Tìm target scan
+    if scan_id:
+        scan_q = select(Scan).where(Scan.id == scan_id, Scan.project_id == project_id)
+    else:
+        scan_q = (
+            select(Scan)
+            .where(Scan.project_id == project_id, Scan.status == ScanStatus.COMPLETED)
+            .order_by(desc(Scan.completed_at), desc(Scan.created_at))
+            .limit(1)
+        )
+    scan_res = await db.execute(scan_q)
+    target_scan = scan_res.scalar_one_or_none()
+
+    if not target_scan:
+        return {
+            "project_id": project_id,
+            "scan_id": None,
+            "files": [],
+            "total_files": 0,
+            "deleted_count": 0,
+            "files_with_findings_count": 0,
+        }
+
+    # 2. Lấy danh sách findings của target_scan
+    findings_q = select(Finding).where(Finding.scan_id == target_scan.id)
+    findings_res = await db.execute(findings_q)
+    all_findings = findings_res.scalars().all()
+
+    findings_by_file: dict[str, dict] = {}
+    for f in all_findings:
+        raw_path = f.file_path or ""
+        norm_path = normalize_relative_path(raw_path)
+        if not norm_path:
+            continue
+        if norm_path not in findings_by_file:
+            findings_by_file[norm_path] = {
+                "raw_path": raw_path,
+                "count": 0,
+                "severities": {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0},
+            }
+        findings_by_file[norm_path]["count"] += 1
+        sev = f.severity.value if hasattr(f.severity, "value") else str(f.severity).lower()
+        if sev in findings_by_file[norm_path]["severities"]:
+            findings_by_file[norm_path]["severities"][sev] += 1
+
+    # 3. Lấy file_hashes hiện tại
+    current_hashes = target_scan.file_hashes or {}
+
+    # 4. Tìm scan trước đó để so sánh file bị xóa
+    prev_scan_q = (
+        select(Scan)
+        .where(
+            Scan.project_id == project_id,
+            Scan.scan_type == target_scan.scan_type,
+            Scan.status == ScanStatus.COMPLETED,
+            Scan.id != target_scan.id,
+            (Scan.completed_at < target_scan.completed_at) | (Scan.created_at < target_scan.created_at),
+        )
+        .order_by(desc(Scan.completed_at), desc(Scan.created_at))
+        .limit(1)
+    )
+    prev_scan_res = await db.execute(prev_scan_q)
+    prev_scan = prev_scan_res.scalar_one_or_none()
+
+    prev_hashes = prev_scan.file_hashes or {} if prev_scan else {}
+
+    # Chuẩn hóa map
+    curr_file_map = {normalize_relative_path(p): p for p in current_hashes.keys() if p}
+    prev_file_map = {normalize_relative_path(p): p for p in prev_hashes.keys() if p}
+
+    # Bổ sung các file trong findings nếu chưa có trong curr_file_map
+    for norm_p, info in findings_by_file.items():
+        if norm_p not in curr_file_map:
+            curr_file_map[norm_p] = info["raw_path"]
+
+    # File bị xóa: có trong prev nhưng không có trong curr
+    deleted_norm_paths = set(prev_file_map.keys()) - set(curr_file_map.keys())
+
+    # Bổ sung suspicious_findings từ findings_diff nếu có
+    diff = target_scan.findings_diff or {}
+    suspicious_findings = diff.get("suspicious_findings", [])
+    suspicious_by_file: dict[str, dict] = {}
+    for sf in suspicious_findings:
+        sf_raw = sf.get("file_path") or ""
+        sf_norm = normalize_relative_path(sf_raw)
+        if not sf_norm:
+            continue
+        deleted_norm_paths.add(sf_norm)
+        if sf_norm not in suspicious_by_file:
+            suspicious_by_file[sf_norm] = {
+                "raw_path": sf_raw,
+                "count": 0,
+                "severities": {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0},
+            }
+        suspicious_by_file[sf_norm]["count"] += 1
+        sev = str(sf.get("severity", "medium")).lower()
+        if sev in suspicious_by_file[sf_norm]["severities"]:
+            suspicious_by_file[sf_norm]["severities"][sev] += 1
+
+    files_list = []
+
+    # 1. File hiện có (active)
+    for norm_p in sorted(curr_file_map.keys()):
+        f_info = findings_by_file.get(
+            norm_p,
+            {"count": 0, "severities": {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}},
+        )
+        files_list.append({
+            "path": norm_p,
+            "display_name": norm_p.split("/")[-1],
+            "status": "active",
+            "is_deleted": False,
+            "findings_count": f_info["count"],
+            "severities": f_info["severities"],
+        })
+
+    # 2. File bị xóa (deleted)
+    for norm_p in sorted(deleted_norm_paths):
+        f_info = suspicious_by_file.get(
+            norm_p,
+            {"count": 0, "severities": {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}},
+        )
+        files_list.append({
+            "path": norm_p,
+            "display_name": norm_p.split("/")[-1],
+            "status": "deleted",
+            "is_deleted": True,
+            "findings_count": f_info["count"],
+            "severities": f_info["severities"],
+        })
+
+    return {
+        "project_id": project_id,
+        "scan_id": target_scan.id,
+        "files": files_list,
+        "total_files": len(files_list),
+        "deleted_count": len(deleted_norm_paths),
+        "files_with_findings_count": sum(1 for f in files_list if f["findings_count"] > 0),
+    }
+
+

@@ -13,6 +13,7 @@ import type {
   ScanStatus,
   Severity,
   SystemSettings,
+  ProjectFileTreeResponse,
 } from '@/types';
 
 import { getAccessToken, refreshTokenApi, clearTokens } from '@/lib/auth';
@@ -131,6 +132,13 @@ export const projectsApi = {
   
   generateWebhookConfig: async (id: string, provider: string) => {
     const { data } = await api.post<{ webhook_url: string; webhook_secret: string; provider: string | null }>(`/projects/${id}/webhook-config`, { provider });
+    return data;
+  },
+
+  getFileTree: async (id: string, scanId?: string) => {
+    const { data } = await api.get<ProjectFileTreeResponse>(`/projects/${id}/file-tree`, {
+      params: { scan_id: scanId || undefined },
+    });
     return data;
   },
 };

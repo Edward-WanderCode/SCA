@@ -210,3 +210,22 @@ export interface SystemSettingsUpdate {
   max_concurrent_scans?: number;
 }
 
+export interface ProjectFileItem {
+  path: string;
+  display_name: string;
+  status: 'active' | 'deleted';
+  is_deleted: boolean;
+  findings_count: number;
+  severities: Record<Severity, number>;
+}
+
+export interface ProjectFileTreeResponse {
+  project_id: string;
+  scan_id: string | null;
+  files: ProjectFileItem[];
+  total_files: number;
+  deleted_count: number;
+  files_with_findings_count: number;
+}
+
+

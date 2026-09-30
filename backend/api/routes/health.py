@@ -28,8 +28,7 @@ async def health_check(db: Session = Depends(get_db)) -> Dict[str, Any]:
     
     # Check Database
     try:
-        # We need an async connection check, or we can use the injected sync session
-        db.execute(text("SELECT 1"))
+        await db.execute(text("SELECT 1"))
         health_status["components"]["database"] = "healthy"
     except Exception as e:
         health_status["components"]["database"] = f"unhealthy: {str(e)}"

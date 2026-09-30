@@ -516,6 +516,85 @@ async def browse_directory(path: str = ""):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ──────────────────────────────────────────────────────────────
+# Uploaded Files Management Endpoints (Must be before /{scan_id})
+# ──────────────────────────────────────────────────────────────
+
+@router.get("/uploaded-files", status_code=200)
+async def list_uploaded_files(
+    limit: int = Query(50, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_analyst),
+):
+    """List uploaded files (e.g. from Telegram uploads or local scans)."""
+    from models.uploaded_file import UploadedFile
+    result = await db.execute(select(UploadedFile).order_by(UploadedFile.created_at.desc()).limit(limit))
+    files = result.scalars().all()
+    return [
+        {
+            "id": f.id,
+            "file_name": f.file_name,
+            "file_size": f.file_size,
+            "telegram_message_id": f.telegram_message_id,
+            "created_at": f.created_at,
+        }
+        for f in files
+    ]
+
+
+@router.delete("/uploaded-files/{file_id}", status_code=200)
+async def delete_uploaded_file(
+    file_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_analyst),
+):
+    """Delete a single uploaded file record and associated temporary files."""
+    from models.uploaded_file import UploadedFile
+    file_rec = await db.get(UploadedFile, file_id)
+    if not file_rec:
+        raise HTTPException(status_code=404, detail="Uploaded file not found")
+
+    file_name = file_rec.file_name
+    await db.delete(file_rec)
+    await db.commit()
+
+    # Clean matching temp files in workspace
+    temp_dir = Path(settings.SCAN_WORKSPACE_DIR) / "temp_telegram_uploads"
+    if temp_dir.exists():
+        for p in temp_dir.glob(f"*_{file_name}"):
+            try:
+                p.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+    return {"message": f"File {file_name} deleted successfully"}
+
+
+@router.delete("/uploaded-files", status_code=200)
+async def clear_uploaded_files(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_analyst),
+):
+    """Delete all uploaded file records and clear the temp upload folder."""
+    from models.uploaded_file import UploadedFile
+    from sqlalchemy import delete
+    await db.execute(delete(UploadedFile))
+    await db.commit()
+
+    temp_dir = Path(settings.SCAN_WORKSPACE_DIR) / "temp_telegram_uploads"
+    if temp_dir.exists():
+        for item in temp_dir.iterdir():
+            try:
+                if item.is_file():
+                    item.unlink(missing_ok=True)
+                elif item.is_dir():
+                    shutil.rmtree(item, ignore_errors=True)
+            except Exception:
+                pass
+
+    return {"message": "All uploaded files deleted successfully"}
+
+
 @router.get("/{scan_id}", response_model=ScanResponse)
 async def get_scan(
     scan_id: str,
@@ -610,3 +689,4 @@ async def export_sarif(
         results.append(result_obj)
 
     return sarif_log
+

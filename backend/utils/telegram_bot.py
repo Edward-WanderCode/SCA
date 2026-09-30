@@ -12,7 +12,14 @@ from db.session import async_session_factory
 from sqlalchemy import select
 from models.project import Project
 from models.scan import Scan, ScanStatus, ScanType
-from utils.telegram import send_telegram_notification, delete_telegram_topic, escape_html, get_telegram_api_base_url
+from utils.telegram import (
+    send_telegram_notification,
+    edit_telegram_message,
+    delete_telegram_message,
+    delete_telegram_topic,
+    escape_html,
+    get_telegram_api_base_url,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +108,67 @@ async def start_telegram_bot_polling():
         except Exception as e:
             logger.error(f"Error in Telegram Bot Polling loop: {e}")
             await asyncio.sleep(5)
+
+
+def build_scan_keyboard(files: list) -> list:
+    """Build interactive keyboard for /scan listing uploaded files."""
+    base_url = get_telegram_api_base_url()
+    is_official_api = "api.telegram.org" in base_url
+    has_mtproto = bool(getattr(settings, "TELEGRAM_API_ID", None) and getattr(settings, "TELEGRAM_API_HASH", None))
+    inline_keyboard = []
+    for f in files:
+        file_size_bytes = f.file_size or 0
+        if file_size_bytes >= 1024 * 1024:
+            size_str = f" ({round(file_size_bytes / (1024 * 1024), 1)} MB)"
+        elif file_size_bytes > 0:
+            size_str = f" ({round(file_size_bytes / 1024, 1)} KB)"
+        else:
+            size_str = ""
+
+        is_over_20mb_warning = file_size_bytes > 20 * 1024 * 1024 and is_official_api and not has_mtproto
+        icon = "⚠️" if is_over_20mb_warning else "📦"
+        btn_text = f"{icon} {f.file_name}{size_str}"
+        if is_over_20mb_warning:
+            btn_text += " [>20MB]"
+
+        inline_keyboard.append([
+            {
+                "text": btn_text,
+                "callback_data": f"scan_zip:{f.id}"
+            }
+        ])
+
+    inline_keyboard.append([
+        {"text": "🗑️ Quản lý / Xóa file", "callback_data": "manage_files"},
+        {"text": "🧹 Xóa tất cả", "callback_data": "confirm_clear_all"},
+    ])
+    return inline_keyboard
+
+
+def build_manage_files_keyboard(files: list) -> list:
+    """Build interactive keyboard for deleting uploaded files."""
+    inline_keyboard = []
+    for f in files:
+        file_size_bytes = f.file_size or 0
+        if file_size_bytes >= 1024 * 1024:
+            size_str = f" ({round(file_size_bytes / (1024 * 1024), 1)} MB)"
+        elif file_size_bytes > 0:
+            size_str = f" ({round(file_size_bytes / 1024, 1)} KB)"
+        else:
+            size_str = ""
+
+        inline_keyboard.append([
+            {
+                "text": f"❌ Xóa: {f.file_name}{size_str}",
+                "callback_data": f"del_file:{f.id}"
+            }
+        ])
+
+    inline_keyboard.append([
+        {"text": "🧹 Xóa toàn bộ file", "callback_data": "confirm_clear_all"},
+        {"text": "🔙 Quay lại Quét mã", "callback_data": "back_to_scan"},
+    ])
+    return inline_keyboard
 
 
 async def handle_message(message: dict):
@@ -221,37 +289,62 @@ async def handle_message(message: dict):
                     send_telegram_notification(reply, message_thread_id=current_thread_id)
                     return
 
-                # Build inline keyboard buttons
-                base_url = get_telegram_api_base_url()
-                is_official_api = "api.telegram.org" in base_url
-                has_mtproto = bool(getattr(settings, 'TELEGRAM_API_ID', None) and getattr(settings, 'TELEGRAM_API_HASH', None))
-                inline_keyboard = []
-                for f in files:
-                    file_size_bytes = f.file_size or 0
-                    if file_size_bytes >= 1024 * 1024:
-                        size_str = f" ({round(file_size_bytes / (1024 * 1024), 1)} MB)"
-                    elif file_size_bytes > 0:
-                        size_str = f" ({round(file_size_bytes / 1024, 1)} KB)"
-                    else:
-                        size_str = ""
-
-                    is_over_20mb_warning = file_size_bytes > 20 * 1024 * 1024 and is_official_api and not has_mtproto
-                    icon = "⚠️" if is_over_20mb_warning else "📦"
-                    btn_text = f"{icon} {f.file_name}{size_str}"
-                    if is_over_20mb_warning:
-                        btn_text += " [>20MB]"
-
-                    inline_keyboard.append([
-                        {
-                            "text": btn_text,
-                            "callback_data": f"scan_zip:{f.id}"
-                        }
-                    ])
-
+                inline_keyboard = build_scan_keyboard(files)
                 reply = (
                     "📁 <b>Danh sách file ZIP đã tải lên:</b>\n\n"
-                    "Bấm chọn file bạn muốn tiến hành quét an ninh mã nguồn:"
+                    "Bấm chọn file bạn muốn tiến hành quét an ninh mã nguồn, hoặc bấm 🗑️ <b>Quản lý / Xóa file</b>:"
                 )
+                send_telegram_notification(reply, message_thread_id=current_thread_id, inline_keyboard=inline_keyboard)
+                return
+
+            elif text.startswith(("/files", "/manage_files", "/dsfile")):
+                from models.uploaded_file import UploadedFile
+                async with async_session_factory() as session:
+                    q = select(UploadedFile).order_by(UploadedFile.created_at.desc()).limit(20)
+                    res = await session.execute(q)
+                    files = res.scalars().all()
+
+                if not files:
+                    reply = (
+                        "ℹ️ <b>Chưa có file ZIP nào được tải lên!</b>\n\n"
+                        "Danh sách file hiện đang trống. Hãy gửi file mã nguồn <code>.zip</code> vào topic <b>Zip file upload</b> để bắt đầu."
+                    )
+                    send_telegram_notification(reply, message_thread_id=current_thread_id)
+                    return
+
+                reply = (
+                    "🗑️ <b>Quản lý file đã tải lên:</b>\n\n"
+                    "Bấm nút ❌ bên dưới để xóa file tương ứng khỏi hệ thống, hoặc bấm 🧹 <b>Xóa toàn bộ file</b>:"
+                )
+                send_telegram_notification(
+                    reply,
+                    message_thread_id=current_thread_id,
+                    inline_keyboard=build_manage_files_keyboard(files)
+                )
+                return
+
+            elif text.startswith(("/clear_files", "/delete_files", "/xoa_files")):
+                from models.uploaded_file import UploadedFile
+                async with async_session_factory() as session:
+                    q = select(UploadedFile).limit(1)
+                    res = await session.execute(q)
+                    has_files = res.scalars().first() is not None
+
+                if not has_files:
+                    reply = "ℹ️ <b>Danh sách file hiện tại đã trống, không có file nào để xóa!</b>"
+                    send_telegram_notification(reply, message_thread_id=current_thread_id)
+                    return
+
+                reply = (
+                    "⚠️ <b>Xác nhận xóa toàn bộ file tải lên?</b>\n\n"
+                    "Hành động này sẽ xóa tất cả file ZIP khỏi danh sách quét của bot và dọn sạch thư mục tạm."
+                )
+                inline_keyboard = [
+                    [
+                        {"text": "✅ Xác nhận xóa tất cả", "callback_data": "do_clear_all"},
+                        {"text": "❌ Hủy bỏ", "callback_data": "cancel_clear"},
+                    ]
+                ]
                 send_telegram_notification(reply, message_thread_id=current_thread_id, inline_keyboard=inline_keyboard)
                 return
 
@@ -259,11 +352,14 @@ async def handle_message(message: dict):
                 reply = (
                     "🤖 <b>SCA Security Platform Bot</b>\n\n"
                     "• <b>Tải file:</b> Gửi file <code>.zip</code> vào topic <b>Zip file upload</b>\n"
-                    "• <b>Quét mã:</b> Gõ lệnh <code>/scan</code> tại đây để chọn file và kích hoạt quét\n"
+                    "• <b>Quét mã:</b> Gõ lệnh <code>/scan</code> để chọn file và kích hoạt quét\n"
+                    "• <b>Quản lý file:</b> Gõ <code>/files</code> để xem và xóa file đã upload\n"
+                    "• <b>Xóa tất cả file:</b> Gõ <code>/clear_files</code> để xóa sạch danh sách file\n"
                     "• <b>Tra cứu ID Topic:</b> Gõ <code>/topicid</code> tại bất kỳ topic nào"
                 )
                 send_telegram_notification(reply, message_thread_id=current_thread_id)
                 return
+
 
     except Exception as e:
         logger.exception(f"Unhandled exception in handle_message: {e}")
@@ -606,6 +702,151 @@ async def handle_callback_query(callback_query: dict):
     elif data.startswith("scan_zip:"):
         upload_id = data.replace("scan_zip:", "")
         await process_scan_uploaded_zip(upload_id, message_thread_id)
+    elif data == "manage_files":
+        await process_show_manage_files(message)
+    elif data == "back_to_scan":
+        await process_show_scan_menu(message)
+    elif data.startswith("del_file:"):
+        file_id = data.replace("del_file:", "")
+        await process_delete_uploaded_file(file_id, message)
+    elif data == "confirm_clear_all":
+        await process_confirm_clear_all(message)
+    elif data == "do_clear_all":
+        await process_do_clear_all(message)
+    elif data == "cancel_clear":
+        await process_show_manage_files(message)
+
+
+async def process_show_manage_files(message: dict):
+    """Display file management keyboard with delete buttons."""
+    msg_id = message.get("message_id")
+    thread_id = message.get("message_thread_id")
+    from models.uploaded_file import UploadedFile
+    async with async_session_factory() as session:
+        q = select(UploadedFile).order_by(UploadedFile.created_at.desc()).limit(20)
+        res = await session.execute(q)
+        files = res.scalars().all()
+
+    if not files:
+        text = "ℹ️ <b>Chưa có file ZIP nào được tải lên!</b>\n\nDanh sách file hiện đang trống."
+        if not msg_id or not edit_telegram_message(msg_id, text):
+            send_telegram_notification(text, message_thread_id=thread_id)
+        return
+
+    text = "🗑️ <b>Quản lý file đã tải lên:</b>\n\nBấm nút ❌ bên dưới để xóa file tương ứng khỏi hệ thống, hoặc bấm 🧹 <b>Xóa toàn bộ file</b>:"
+    kb = build_manage_files_keyboard(files)
+    if not msg_id or not edit_telegram_message(msg_id, text, inline_keyboard=kb):
+        send_telegram_notification(text, message_thread_id=thread_id, inline_keyboard=kb)
+
+
+async def process_show_scan_menu(message: dict):
+    """Switch back to scan menu keyboard."""
+    msg_id = message.get("message_id")
+    thread_id = message.get("message_thread_id")
+    from models.uploaded_file import UploadedFile
+    async with async_session_factory() as session:
+        q = select(UploadedFile).order_by(UploadedFile.created_at.desc()).limit(20)
+        res = await session.execute(q)
+        files = res.scalars().all()
+
+    if not files:
+        text = "ℹ️ <b>Chưa có file ZIP nào được tải lên!</b>\n\nVui lòng gửi file mã nguồn <code>.zip</code> vào topic <b>Zip file upload</b> trước."
+        if not msg_id or not edit_telegram_message(msg_id, text):
+            send_telegram_notification(text, message_thread_id=thread_id)
+        return
+
+    text = "📁 <b>Danh sách file ZIP đã tải lên:</b>\n\nBấm chọn file bạn muốn tiến hành quét an ninh mã nguồn, hoặc bấm 🗑️ <b>Quản lý / Xóa file</b>:"
+    kb = build_scan_keyboard(files)
+    if not msg_id or not edit_telegram_message(msg_id, text, inline_keyboard=kb):
+        send_telegram_notification(text, message_thread_id=thread_id, inline_keyboard=kb)
+
+
+async def process_delete_uploaded_file(file_id: str, message: dict):
+    """Delete a single uploaded file and refresh file list."""
+    msg_id = message.get("message_id")
+    thread_id = message.get("message_thread_id")
+    from models.uploaded_file import UploadedFile
+    file_name = "tệp tin"
+
+    async with async_session_factory() as session:
+        file_rec = await session.get(UploadedFile, file_id)
+        if file_rec:
+            file_name = file_rec.file_name
+            await session.delete(file_rec)
+            await session.commit()
+
+        q = select(UploadedFile).order_by(UploadedFile.created_at.desc()).limit(20)
+        res = await session.execute(q)
+        files = res.scalars().all()
+
+    # Clean local temp files matching this file_name
+    temp_dir = Path(settings.SCAN_WORKSPACE_DIR) / "temp_telegram_uploads"
+    if temp_dir.exists():
+        for p in temp_dir.glob(f"*_{file_name}"):
+            try:
+                p.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+    if not files:
+        text = f"✅ <b>Đã xóa file <code>{escape_html(file_name)}</code> thành công!</b>\n\nHiện không còn file nào trong danh sách tải lên."
+        if not msg_id or not edit_telegram_message(msg_id, text):
+            send_telegram_notification(text, message_thread_id=thread_id)
+        return
+
+    text = (
+        f"✅ <b>Đã xóa file <code>{escape_html(file_name)}</code> thành công!</b>\n\n"
+        f"🗑️ <b>Danh sách file còn lại:</b>"
+    )
+    kb = build_manage_files_keyboard(files)
+    if not msg_id or not edit_telegram_message(msg_id, text, inline_keyboard=kb):
+        send_telegram_notification(text, message_thread_id=thread_id, inline_keyboard=kb)
+
+
+async def process_confirm_clear_all(message: dict):
+    """Show confirmation buttons before clearing all uploaded files."""
+    msg_id = message.get("message_id")
+    thread_id = message.get("message_thread_id")
+    text = (
+        "⚠️ <b>Xác nhận xóa toàn bộ file tải lên?</b>\n\n"
+        "Hành động này sẽ xóa tất cả file ZIP khỏi danh sách quét của bot và dọn sạch thư mục tạm."
+    )
+    kb = [
+        [
+            {"text": "✅ Xác nhận xóa tất cả", "callback_data": "do_clear_all"},
+            {"text": "❌ Hủy bỏ", "callback_data": "cancel_clear"},
+        ]
+    ]
+    if not msg_id or not edit_telegram_message(msg_id, text, inline_keyboard=kb):
+        send_telegram_notification(text, message_thread_id=thread_id, inline_keyboard=kb)
+
+
+async def process_do_clear_all(message: dict):
+    """Delete all uploaded files from DB and clean temp directory."""
+    msg_id = message.get("message_id")
+    thread_id = message.get("message_thread_id")
+    from models.uploaded_file import UploadedFile
+    from sqlalchemy import delete
+
+    async with async_session_factory() as session:
+        await session.execute(delete(UploadedFile))
+        await session.commit()
+
+    temp_dir = Path(settings.SCAN_WORKSPACE_DIR) / "temp_telegram_uploads"
+    if temp_dir.exists():
+        for item in temp_dir.iterdir():
+            try:
+                if item.is_file():
+                    item.unlink(missing_ok=True)
+                elif item.is_dir():
+                    shutil.rmtree(item, ignore_errors=True)
+            except Exception:
+                pass
+
+    text = "✅ <b>Đã xóa toàn bộ file tải lên thành công!</b>\n\nDanh sách file trong hệ thống hiện đã được làm sạch hoàn toàn."
+    if not msg_id or not edit_telegram_message(msg_id, text):
+        send_telegram_notification(text, message_thread_id=thread_id)
+
 
 
 async def process_scan_uploaded_zip(upload_id: str, current_thread_id: int | None):

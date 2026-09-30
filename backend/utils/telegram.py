@@ -191,6 +191,60 @@ def send_telegram_notification(
     return None
 
 
+def edit_telegram_message(
+    message_id: int,
+    text: str,
+    inline_keyboard: list | None = None
+) -> bool:
+    """
+    Edit an existing message text and/or inline keyboard in the configured Telegram chat.
+    Uses HTML parse mode.
+    """
+    token, chat_id, _ = get_telegram_credentials()
+    if not token or not chat_id:
+        return False
+
+    url = f"{get_telegram_api_base_url()}/bot{token}/editMessageText"
+    payload = {
+        "chat_id": chat_id,
+        "message_id": message_id,
+        "text": text,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True,
+    }
+    if inline_keyboard is not None:
+        payload["reply_markup"] = {"inline_keyboard": inline_keyboard}
+
+    try:
+        data = _post_telegram_api(url, json=payload)
+        return bool(data.get("ok"))
+    except Exception as e:
+        logger.error(f"Failed to edit Telegram message {message_id}: {e}")
+        return False
+
+
+def delete_telegram_message(message_id: int) -> bool:
+    """
+    Delete a message from the configured Telegram chat.
+    """
+    token, chat_id, _ = get_telegram_credentials()
+    if not token or not chat_id:
+        return False
+
+    url = f"{get_telegram_api_base_url()}/bot{token}/deleteMessage"
+    payload = {
+        "chat_id": chat_id,
+        "message_id": message_id,
+    }
+    try:
+        data = _post_telegram_api(url, json=payload)
+        return bool(data.get("ok"))
+    except Exception as e:
+        logger.error(f"Failed to delete Telegram message {message_id}: {e}")
+        return False
+
+
+
 def pin_telegram_message(message_id: int) -> bool:
     """
     Pin a message in the configured Telegram chat.
